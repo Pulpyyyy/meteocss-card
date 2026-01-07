@@ -1,0 +1,12 @@
+{
+  "domain": "meteocss_card",
+  "name": "MeteoCSS Card",
+  "codeowners": ["@Pulpyyyy"],
+  "config_flow": false,
+  "documentation": "https://github.com/Pulpyyyy/meteocss-card",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/Pulpyyyy/meteocss-card/issues",
+  "requirements": [],
+  "version": "3.9.6",
+  "homeassistant": "2023.12.0"
+}
