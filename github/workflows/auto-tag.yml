@@ -1,0 +1,43 @@
+name: Sync Tag with JS Version
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  tag-only:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract Version from JS
+        id: get_version
+        run: |
+          VERSION=$(grep -oP 'MeteoCSS Card %c v\K[0-9]+\.[0-9]+\.[0-9]+' meteocss-card.js | head -n 1)
+          
+          # Adding 'v' prefix for the git tag (results in v1.0.0)
+          TAG="v$VERSION"
+          
+          echo "TAG=$TAG" >> $GITHUB_ENV
+          echo "Found version: $TAG"
+
+      - name: Push Tag
+        run: |
+          # Check if tag already exists
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists. Skipping."
+          else
+            echo "Creating and pushing tag $TAG"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag $TAG
+            git push origin $TAG
+          fi
