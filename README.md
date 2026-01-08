@@ -214,20 +214,20 @@ moon:
 
 ## 🎮 Supported Weather Conditions
 
-| Icon | Condition | Clouds | Day | Night | Precipitation / Special Effects |
-|------|-----------|--------|-----|-------|--------------------------------|
-| ☀️ | sunny | minimal_clouds | normal_day | normal_night | — |
-| ⛅ | partlycloudy | low_clouds | intermediate_day | normal_night | — |
-| ☁️☁️ | cloudy | low_clouds | grey_day | normal_night | — |
-| 💧 | rainy | normal_clouds | rainy_day | normal_night | normal_rain |
-| 💧💧 | pouring | normal_clouds | dark_day | dark_night | normal_rain |
-| ⚡ | lightning-rainy | heavy_clouds | grey_day | dark_night | heavy_rain, lightning |
-| ⚡ | lightning | heavy_clouds | dark_day | dark_night | heavy_rain, lightning |
-| ❄️ | snowy | low_clouds | snowy_day | normal_night | normal_flakes |
-| ❄️💧 | snowy-rainy | low_clouds | rainy_day | normal_night | middle_rain, low_flakes |
-| 🌫️ | fog | — | grey_day | normal_night | normal_fog |
-| 🌙 | clear-night | minimal_clouds | normal_day | clear_night | extra_stars |
-| — | default | low_clouds | normal_day | normal_night | — |
+| Icon | Condition | Clouds | Day | Night | Rain | Flakes | Lightning |
+|------|-----------|--------|-----|-------|------|--------|-----------|
+| ☀️ | sunny | minimal_clouds | normal | normal | — | — | — |
+| ⛅ | partlycloudy | low_clouds | intermediate | normal | — | — | — |
+| ☁️☁️ | cloudy | low_clouds | grey | normal | — | — | — |
+| 💧 | rainy | normal_clouds | rainy | normal | normal | — | — |
+| 💧💧 | pouring | normal_clouds | dark | dark | normal | — | — |
+| ⚡ | lightning-rainy | heavy_clouds | grey | dark | heavy | — | lightning |
+| ⚡ | lightning | heavy_clouds | dark | dark | heavy | — | lightning |
+| ❄️ | snowy | low_clouds | snowy | normal | — | normal | — |
+| ❄️💧 | snowy-rainy | low_clouds | rainy | normal | middle | low | — |
+| 🌫️ | fog | — | grey | normal | — | — | — |
+| 🌙 | clear-night | minimal_clouds | normal | clear | — | — | — |
+| — | default | low_clouds | normal | normal | — | — | — |
 
 ## 🧪 Demo Mode
 
