@@ -214,17 +214,20 @@ moon:
 
 ## 🎮 Supported Weather Conditions
 
-| Condition | Effect | Description |
-|-----------|--------|-------------|
-| `lightning-rainy` | ⚡ Lightning | Storms with flashes |
-| `pouring` | 💧💧 Heavy Rain | Intense rainfall |
-| `rainy` | 💧 Rain | Moderate rainfall |
-| `snowy` | ❄️ Snow | Snowflakes animation |
-| `cloudy` | ☁️☁️ Clouds | Heavy cloud cover |
-| `partlycloudy` | ⛅ Partly Cloudy | Scattered clouds |
-| `sunny` | ☀️ Sunny | Clear and bright |
-| `clear-night` | 🌙 Clear Night | Stars visible |
-| `fog` | 🌫️ Fog | Misty conditions |
+| Icon | Condition | Clouds | Day | Night | Precipitation / Special Effects |
+|------|-----------|--------|-----|-------|--------------------------------|
+| ☀️ | sunny | minimal_clouds | normal_day | normal_night | — |
+| ⛅ | partlycloudy | low_clouds | intermediate_day | normal_night | — |
+| ☁️☁️ | cloudy | low_clouds | grey_day | normal_night | — |
+| 💧 | rainy | normal_clouds | rainy_day | normal_night | normal_rain |
+| 💧💧 | pouring | normal_clouds | dark_day | dark_night | normal_rain |
+| ⚡ | lightning-rainy | heavy_clouds | grey_day | dark_night | heavy_rain, lightning |
+| ⚡ | lightning | heavy_clouds | dark_day | dark_night | heavy_rain, lightning |
+| ❄️ | snowy | low_clouds | snowy_day | normal_night | normal_flakes |
+| ❄️💧 | snowy-rainy | low_clouds | rainy_day | normal_night | middle_rain, low_flakes |
+| 🌫️ | fog | — | grey_day | normal_night | normal_fog |
+| 🌙 | clear-night | minimal_clouds | normal_day | clear_night | extra_stars |
+| — | default | low_clouds | normal_day | normal_night | — |
 
 ## 🧪 Demo Mode
 
