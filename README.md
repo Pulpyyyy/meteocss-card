@@ -40,7 +40,7 @@ The sun integration is built-in to Home Assistant. Just ensure it's enabled:
 sun:
 ```
 
-#### 👉 Luna Integration (Custom Integration)
+#### 👉 Luna Integration (Custom Integration) https://github.com/okkine/HA-Luna
 
 1. Install via HACS:
    - Open HACS → **Integrations**
