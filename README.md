@@ -32,7 +32,7 @@ https://github.com/user-attachments/assets/07463969-425f-423e-a758-a8abea28b8b6
 
 ### Installing Required Integrations
 
-#### Sun Integration (Native - No Installation Needed)
+#### 👉 Sun Integration (Native - No Installation Needed)
 The sun integration is built-in to Home Assistant. Just ensure it's enabled:
 
 ```yaml
@@ -40,7 +40,7 @@ The sun integration is built-in to Home Assistant. Just ensure it's enabled:
 sun:
 ```
 
-#### Luna Integration (Custom Integration)
+#### 👉 Luna Integration (Custom Integration)
 
 1. Install via HACS:
    - Open HACS → **Integrations**
