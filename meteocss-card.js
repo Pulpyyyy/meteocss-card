@@ -5,6 +5,7 @@ class MeteoState {
     this.sunPos = data.sunPos || { left: 50, top: 50, elevation: 80, azimuth: 160 };
     this.moonPos = data.moonPos || { left: 50, top: 50, elevation: -25, azimuth: 340 };
     this.moonPhase = data.moonPhase || 'Full Moon';
+    this.moonPhaseDegrees = data.moonPhaseDegrees || 0;
     this.rising = data.rising ?? false;
     this.simulatedHour = data.simulatedHour ?? 12;
     this.windSpeed = data.windSpeed ?? 25;
@@ -17,7 +18,7 @@ class MeteoCard extends HTMLElement {
       orbit: { rx: 45, ry: 40 }, 
       sun: { disc_radius: 8, halo_radius: 50, aura_radius: 130, aura_opacity: 0.15, halo_opacity: 0.4, zoom: 1.0, colors: { aura: '#FFCC00', halo: '#FFFFFF', disc: '#FFFFFF' } },
       moon: { disc_radius: 8, halo_radius: 35, aura_radius: 80, aura_opacity: 0.1, halo_opacity: 0.2, zoom: 1.0, colors: { aura: '#FFFFFF', disc_light: '#FDFDFD', disc_dark: '#9595A5' } },
-      location: 'weather.home', sun_entity: 'sun.sun', moon_azimuth_entity: 'sensor.luna_lunar_azimuth', moon_elevation_entity: 'sensor.luna_lunar_elevation', moon_phase_entity: 'sensor.luna_lunar_phase', house_angle: 25, invert_azimuth: false,
+      location: 'weather.home', sun_entity: 'sun.sun', moon_azimuth_entity: 'sensor.luna_lunar_azimuth', moon_elevation_entity: 'sensor.luna_lunar_elevation', moon_phase_entity: 'sensor.luna_lunar_phase', moon_degrees_entity: 'sensor.luna_lunar_phase_degrees', house_angle: 25, invert_azimuth: false,
       colors: { night: { clear: '#25259C 0%, #2A2A60 40%, #0F0344 100%', normal: '#272762 0%, #302C2C 100%', dark: '#0E0E54 0%, #000000 100%' }, day: { normal: '#FFFFFF 0%, #4BA0DB 50%, #004390 100%', inter: '#B9DFFF 0%, #B0C4C8 60%, #7A9BA0 100%', rainy: '#B9DFFF 0%, #C1CBD0 60%, #91A6B0 100%', dark: '#B9DFFF 0%, #2F4F4F 60%, #708090 100%', snowy: '#B0E2FF 0%, #AAAAAA 60%, #D3D3D3 100%', grey: '#B4C4CB 0%, #A4A6A8 60%, #94A9C7 100%' }, sunrise: '#FFF5C3 0%, #FFD966 10%, #FFA64D 30%, #FF7F50 50%, #5D0000 80%, #002340 100%', sunset: '#FEFEFFCC 0%, #ECFF00 10%, #FD3229 25%, #F30000 45%, #5D0000 75%, #001A33 100%' },
       clouds: { heavy: [15, 5, 4], normal: [10, 3, 2], low: [4, 2, 1], minimal: [2, 2, 0], none: [0, 0, 0] },
       conditions: { 'lightning-rainy': { clouds: 'heavy', day_sky: 'dark', night_sky: 'dark', drops: 500, lightning: true }, 'pouring': { clouds: 'heavy', day_sky: 'dark', night_sky: 'dark', drops: 350 }, 'rainy': { clouds: 'normal', day_sky: 'rainy', night_sky: 'normal', drops: 150 }, 'snowy': { clouds: 'normal', day_sky: 'snowy', night_sky: 'normal', flakes: 120 }, 'cloudy': { clouds: 'heavy', day_sky: 'grey', night_sky: 'normal' }, 'partlycloudy': { clouds: 'low', day_sky: 'inter', night_sky: 'normal' }, 'sunny': { clouds: 'minimal', day_sky: 'normal', night_sky: 'clear' }, 'clear-night': { clouds: 'none', stars: true, night_sky: 'clear' }, 'fog': { clouds: 'none', fog: true, day_sky: 'grey', night_sky: 'normal' }, 'default': { clouds: 'low', day_sky: 'normal', night_sky: 'normal' } }
@@ -132,7 +133,6 @@ class MeteoCard extends HTMLElement {
         if (!rawData) return;
       }
 
-      // Utilisation de la classe MeteoState pour formater les données
       const state = new MeteoState(rawData);
 
       if (!this._initialized || this._lastCondition !== state.condition || (this.config.demo_mode && state.isNight !== this._lastNight)) {
@@ -163,7 +163,6 @@ class MeteoCard extends HTMLElement {
       const prog = (this._demoTimeOffset % 60000) / 60000;
       const cond = (this._demoForcedCondition !== 'auto') ? this._demoForcedCondition : this._demoScenario[Math.floor(prog * this._demoScenario.length)];
       
-      // Randomisation de la vitesse du vent par condition (stable par cycle)
       const seed = Math.floor(prog * this._demoScenario.length);
       const windSpeed = 15 + (Math.abs(Math.sin(seed)) * (80 - 15));
 
@@ -174,12 +173,16 @@ class MeteoCard extends HTMLElement {
       const moonPos = this._getCoords((sunAz + 180) % 360, -sunEl);
       const phases = ['New Moon', 'Waxing Crescent', 'First Quarter', 'Waxing Gibbous', 'Full Moon', 'Waning Gibbous', 'Last Quarter', 'Waning Crescent'];
       
+      const phaseProgress = (prog * 4) % 1; 
+      const moonPhaseDegrees = phaseProgress * 360;
+
       return { 
         condition: cond, 
         isNight: sunPos.elevation <= 0, 
         sunPos, 
         moonPos, 
         moonPhase: phases[Math.floor((prog * 4 * phases.length) % phases.length)], 
+        moonPhaseDegrees: moonPhaseDegrees,
         rising: hour >= 6 && hour < 12, 
         simulatedHour: hour, 
         windSpeed: windSpeed 
@@ -221,7 +224,7 @@ class MeteoCard extends HTMLElement {
   _updateDynamic(state) {
     try {
       const conf = MeteoCard.DEFAULTS;
-      const { isNight, sunPos, moonPos, moonPhase, rising, condition, simulatedHour: hour, windSpeed } = state;
+      const { isNight, sunPos, moonPos, moonPhase, moonPhaseDegrees, rising, condition, simulatedHour: hour, windSpeed } = state;
 
       const sky = this._domCache.skyBg || this.content?.querySelector('.sky-bg');
       if (sky) {
@@ -245,8 +248,11 @@ class MeteoCard extends HTMLElement {
         moon.style.display = moonPos.elevation >= 0 ? 'block' : 'none';
         moon.style.left = `${moonPos.left}%`;
         moon.style.top = `${moonPos.top}%`;
-        if (moonPos.elevation >= 0) moon.innerHTML = this._moonSVG(moonPhase, !isNight);
-        else moon.innerHTML = '';
+        if (moonPos.elevation >= 0) {
+          moon.innerHTML = this._moonSVG(moonPhase, !isNight, moonPhaseDegrees);
+        } else {
+          moon.innerHTML = '';
+        }
       }
 
       const info = this._domCache.infoBox || this.content?.querySelector('.demo-data');
@@ -257,7 +263,7 @@ class MeteoCard extends HTMLElement {
           <div class="line"><b>Wind Speed:</b> ${windSpeed.toFixed(1)} km/h</div>
           <div class="line"><b>Sun:</b> Alt: ${sunPos.elevation.toFixed(1)}° | Az: ${sunPos.azimuth.toFixed(1)}°</div>
           <div class="line"><b>Moon:</b> Alt: ${moonPos.elevation.toFixed(1)}° | Az: ${moonPos.azimuth.toFixed(1)}°</div>
-          <div class="line"><b>Phase:</b> ${this._safe(moonPhase)}</div>
+          <div class="line"><b>Phase:</b> ${this._safe(moonPhase)} | <b>Rot:</b> ${Math.floor(moonPhaseDegrees || 0)}°</div>
         `;
       }
     } catch (e) { console.error('[MeteoCard] _updateDynamic:', e); }
@@ -367,7 +373,7 @@ class MeteoCard extends HTMLElement {
     } catch (e) { console.error('[MeteoCard] _sunSVG:', e); return ''; }
   }
 
-  _moonSVG(phase, isDaytime) {
+  _moonSVG(phase, isDaytime, moonPhaseDegrees = 0) {
     try {
       const def = MeteoCard.DEFAULTS.moon;
       const m = this.config.moon || {};
@@ -379,7 +385,7 @@ class MeteoCard extends HTMLElement {
       const hr = Math.abs(Math.cos(p * Math.PI)) * r;
       const bo = isDaytime ? 0.4 : 1.0;
       const mid = `moon-mask-${Math.random().toString(36).substr(2, 5)}`;
-      return `<svg viewBox="0 0 300 300" style="width:100%; height:100%; overflow:visible;"><defs><filter id="mtx" x="-100%" y="-100%" width="300%" height="300%"><feTurbulence type="fractalNoise" baseFrequency="0.5" numOctaves="2" result="noise"/><feDiffuseLighting lighting-color="#FFFFFF" surfaceScale="1" result="diffuse"><feDistantLight azimuth="45" elevation="45"/></feDiffuseLighting><feComposite in="diffuse" in2="SourceGraphic" operator="in"/></filter><mask id="${mid}"><g transform="translate(150,150) rotate(25)"><path d="M 0,${-r} A ${r},${r} 0 1,${iw ? 0 : 1} 0,${r} A ${hr},${r} 0 0,${p <= 0.5 ? (iw ? 1 : 0) : (iw ? 0 : 1)} 0,${-r}" fill="white" filter="blur(0.8px)"/></g></mask><radialGradient id="ma"><stop offset="0%" stop-color="${col.aura}" stop-opacity="${(m.aura_opacity || def.aura_opacity) * p * bo}"/><stop offset="100%" stop-color="${col.aura}" stop-opacity="0"/></radialGradient><radialGradient id="m3d" cx="40%" cy="40%" r="50%"><stop offset="0%" stop-color="${col.disc_light}"/><stop offset="100%" stop-color="${col.disc_dark}"/></radialGradient></defs><circle cx="150" cy="150" r="${m.aura_radius || def.aura_radius}" fill="url(#ma)"/><circle cx="150" cy="150" r="${m.halo_radius || def.halo_radius}" fill="#FFFFFF" opacity="${(m.halo_opacity || def.halo_opacity) * p * bo}" style="filter:blur(5px);"/><g mask="url(#${mid})" style="opacity:${bo}"><circle cx="150" cy="150" r="${r + 0.5}" fill="url(#m3d)" /><circle cx="150" cy="150" r="${r + 0.5}" fill="white" filter="url(#mtx)" opacity="0.3" style="mix-blend-mode: soft-light;"/></g></svg>`;
+      return `<svg viewBox="0 0 300 300" style="width:100%; height:100%; overflow:visible;"><defs><filter id="mtx" x="-100%" y="-100%" width="300%" height="300%"><feTurbulence type="fractalNoise" baseFrequency="0.5" numOctaves="2" result="noise"/><feDiffuseLighting lighting-color="#FFFFFF" surfaceScale="1" result="diffuse"><feDistantLight azimuth="45" elevation="45"/></feDiffuseLighting><feComposite in="diffuse" in2="SourceGraphic" operator="in"/></filter><mask id="${mid}"><g transform="translate(150,150) rotate(${moonPhaseDegrees})"><path d="M 0,${-r} A ${r},${r} 0 1,${iw ? 0 : 1} 0,${r} A ${hr},${r} 0 0,${p <= 0.5 ? (iw ? 1 : 0) : (iw ? 0 : 1)} 0,${-r}" fill="white" filter="blur(0.8px)"/></g></mask><radialGradient id="ma"><stop offset="0%" stop-color="${col.aura}" stop-opacity="${(m.aura_opacity || def.aura_opacity) * p * bo}"/><stop offset="100%" stop-color="${col.aura}" stop-opacity="0"/></radialGradient><radialGradient id="m3d" cx="40%" cy="40%" r="50%"><stop offset="0%" stop-color="${col.disc_light}"/><stop offset="100%" stop-color="${col.disc_dark}"/></radialGradient></defs><circle cx="150" cy="150" r="${m.aura_radius || def.aura_radius}" fill="url(#ma)"/><circle cx="150" cy="150" r="${m.halo_radius || def.halo_radius}" fill="#FFFFFF" opacity="${(m.halo_opacity || def.halo_opacity) * p * bo}" style="filter:blur(5px);"/><g mask="url(#${mid})" style="opacity:${bo}"><g transform="translate(150,150) rotate(${moonPhaseDegrees})"><circle cx="0" cy="0" r="${r + 0.5}" fill="url(#m3d)" /><circle cx="0" cy="0" r="${r + 0.5}" fill="white" filter="url(#mtx)" opacity="0.3" style="mix-blend-mode: soft-light;"/></g></g></svg>`;
     } catch (e) { console.error('[MeteoCard] _moonSVG:', e); return ''; }
   }
 
@@ -516,7 +522,7 @@ class MeteoCard extends HTMLElement {
   }
 }
 customElements.define('meteo-card', MeteoCard);
-console.info("%c MeteoCSS Card %c v1.0.1 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
+console.info("%c MeteoCSS Card %c v1.0.2 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
 window.customCards = window.customCards || [];
 window.customCards.push({
     type: "meteocss-card",
