@@ -14,7 +14,7 @@ https://github.com/user-attachments/assets/07463969-425f-423e-a758-a8abea28b8b6
 
 - 🌞 **Realistic Sun** : Azimuth/elevation position tracking with aura and halo
 - 🌙 **Detailed Moon** : Complete lunar phases with 3D texture
-- ☁️ **Animated Clouds** : Multiple coverage levels with real-time distortion
+- ☁️ **Animated Clouds** : Multiple coverage levels with real-time distortion, based on speed wind
 - 🌧️ **Weather Effects** : Rain, snow, fog with smooth animations
 - ⚡ **Extreme Conditions** : Realistic lightning for storms
 - 🌅 **Adaptive Gradients** : Sky changes with conditions and time
