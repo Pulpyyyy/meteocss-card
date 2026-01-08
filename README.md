@@ -6,7 +6,7 @@
 
 A stunning and realistic weather card for Home Assistant featuring dynamic sky, sun, moon, and immersive weather effects.
 
-[![See Video](.img/base.png)](.impg/demo.mp4)
+[![See Video](.img/base.png)](.img/demo.mp4)
 
 ## ✨ Features
 
