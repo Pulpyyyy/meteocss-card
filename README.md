@@ -216,18 +216,18 @@ moon:
 
 | Icon | Condition | Clouds | Day | Night | Rain | Flakes | Lightning |
 |------|-----------|--------|-----|-------|------|--------|-----------|
-| ☀️ | sunny | minimal_clouds | normal | normal | — | — | — |
-| ⛅ | partlycloudy | low_clouds | intermediate | normal | — | — | — |
-| ☁️☁️ | cloudy | low_clouds | grey | normal | — | — | — |
-| 💧 | rainy | normal_clouds | rainy | normal | normal | — | — |
-| 💧💧 | pouring | normal_clouds | dark | dark | normal | — | — |
-| ⚡ | lightning-rainy | heavy_clouds | grey | dark | heavy | — | lightning |
-| ⚡ | lightning | heavy_clouds | dark | dark | heavy | — | lightning |
-| ❄️ | snowy | low_clouds | snowy | normal | — | normal | — |
-| ❄️💧 | snowy-rainy | low_clouds | rainy | normal | middle | low | — |
+| ☀️ | sunny | minimal | normal | normal | — | — | — |
+| ⛅ | partlycloudy | low | intermediate | normal | — | — | — |
+| ☁️☁️ | cloudy | low | grey | normal | — | — | — |
+| 💧 | rainy | normal | rainy | normal | normal | — | — |
+| 💧💧 | pouring | normal | dark | dark | normal | — | — |
+| ⚡ | lightning-rainy | heavy | grey | dark | heavy | — | lightning |
+| ⚡ | lightning | heavy | dark | dark | heavy | — | lightning |
+| ❄️ | snowy | low | snowy | normal | — | normal | — |
+| ❄️💧 | snowy-rainy | low | rainy | normal | middle | low | — |
 | 🌫️ | fog | — | grey | normal | — | — | — |
-| 🌙 | clear-night | minimal_clouds | normal | clear | — | — | — |
-| — | default | low_clouds | normal | normal | — | — | — |
+| 🌙 | clear-night | minimal | normal | clear | — | — | — |
+| — | default | low | normal | normal | — | — | — |
 
 ## 🧪 Demo Mode
 
