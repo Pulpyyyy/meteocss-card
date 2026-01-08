@@ -78,15 +78,16 @@ resources:
 
 ## 📝 Configuration
 
-### Basic Configuration
+### Basic demo onfiguration
 
 ```yaml
 type: custom:meteo-card
 location: weather.home
 sun_entity: sun.sun
+demo_mode: true
 ```
 
-### Complete YAML Configuration Example
+### Complete YAML and default values configuration Example
 
 ```yaml
 type: custom:meteo-card
