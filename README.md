@@ -78,13 +78,21 @@ resources:
 
 ## 📝 Configuration
 
-### Basic demo onfiguration
+### Basic demo configuration
 
 ```yaml
 type: custom:meteo-card
 location: weather.home
 sun_entity: sun.sun
 demo_mode: true
+```
+
+### Minimal Configuration
+
+```yaml
+type: custom:meteo-card
+location: weather.home
+sun_entity: sun.sun
 ```
 
 ### Complete YAML and default values configuration Example
@@ -169,14 +177,6 @@ layers:
 
 # Demo Mode (simulator without real entities)
 demo_mode: false
-```
-
-### Minimal Configuration
-
-```yaml
-type: custom:meteo-card
-location: weather.home
-sun_entity: sun.sun
 ```
 
 ### Advanced Custom Colors Example
