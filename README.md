@@ -93,11 +93,12 @@ demo_mode: true
 type: custom:meteo-card
 
 # Entity References
-location: weather.home                              # Weather entity
-sun_entity: sun.sun                                 # Sun position entity
-moon_azimuth_entity: sensor.luna_lunar_azimuth     # Moon azimuth (optional)
-moon_elevation_entity: sensor.luna_lunar_elevation # Moon elevation (optional)
-moon_phase_entity: sensor.luna_lunar_phase         # Moon phase (optional)
+location: weather.home                                         # Weather entity
+sun_entity: sun.sun                                            # Sun position entity
+moon_azimuth_entity: sensor.luna_lunar_azimuth                 # Moon azimuth (optional)
+moon_elevation_entity: sensor.luna_lunar_elevation             # Moon elevation (optional)
+moon_phase_entity: sensor.luna_lunar_phase                     # Moon phase (optional)
+moon_phase_degrees_entity: sensor.luna_lunar_phase_degrees     # Moon phase orientation (optional)
 
 # Orbit Configuration (percentage of container)
 orbit:
