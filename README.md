@@ -48,11 +48,7 @@ sun:
    - Install "HA-Luna" by okkine
    - Restart Home Assistant
 
-2. Add to configuration:
-   ```yaml
-   # configuration.yaml
-   luna:
-   ```
+2. Configure using UI
 
 3. Verify entities are created:
    - `sensor.luna_lunar_azimuth`
