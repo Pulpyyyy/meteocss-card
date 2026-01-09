@@ -22,7 +22,7 @@ class MeteoState {
 class MeteoCard extends HTMLElement {
   static get DEFAULTS() {
     return {
-      orbit: { rx: 45, ry: 40, cx: 50, cy: 50}, 
+      orbit: { rx: 45, ry: 40, cx: 50, cy: 50, tilt: 0}, 
       sun: { disc_radius: 8, halo_radius: 50, aura_radius: 130, aura_opacity: 0.15, halo_opacity: 0.4, zoom: 1.0, colors: { aura: '#FFCC00', halo: '#FFFFFF', disc: '#FFFFFF' } },
       moon: { disc_radius: 8, halo_radius: 35, aura_radius: 80, aura_opacity: 0.1, halo_opacity: 0.2, zoom: 1.0, colors: { aura: '#FFFFFF', disc_light: '#FDFDFD', disc_dark: '#9595A5' } },
       location: 'weather.home', sun_entity: 'sun.sun', moon_azimuth_entity: 'sensor.luna_lunar_azimuth', moon_elevation_entity: 'sensor.luna_lunar_elevation', moon_phase_entity: 'sensor.luna_lunar_phase', moon_degrees_entity: 'sensor.luna_lunar_phase_degrees', house_angle: 25, invert_azimuth: false,
@@ -51,7 +51,6 @@ class MeteoCard extends HTMLElement {
 
   set hass(hass) {
     try {
-      // S'assurer que le contenu est initialisé en premier
       if (!this.content) {
         this.innerHTML = `<ha-card></ha-card>`;
         this.content = this.querySelector('ha-card');
@@ -65,7 +64,6 @@ class MeteoCard extends HTMLElement {
         this._injectStyles();
       }
       
-      // En mode démo, on ignore les vérifications d'état
       if (!this.config.demo_mode) {
         const weatherEnt = this._getEntity('weather', 'location');
         const sunEnt = this._getEntity('sun_entity', 'sun_entity');
@@ -109,7 +107,6 @@ class MeteoCard extends HTMLElement {
         this._stopDemo();
       }
       
-      // Force l'affichage immédiat en preview avec données par défaut
       if (!this._initialized) {
         const defaultState = new MeteoState({
           condition: 'sunny',
@@ -119,7 +116,6 @@ class MeteoCard extends HTMLElement {
           windSpeed: 0
         });
         this._renderAll(defaultState);
-        // Assurer que la démo UI est bien accessible en avant
         setTimeout(() => {
           const demoUI = this.content?.querySelector('.demo-ui-container');
           if (demoUI) demoUI.style.zIndex = '9999';
@@ -178,22 +174,31 @@ class MeteoCard extends HTMLElement {
   }
 
 _getCoords(azimuth, elevation) {
-  try {
-    const o = this.config.orbit || MeteoCard.DEFAULTS.orbit;
-    const rx = parseFloat(o.rx) || 45;
-    const ry = parseFloat(o.ry) || 40;
-    const cx = parseFloat(o.cx) || 50;
-    const cy = parseFloat(o.cy) || 50;
+    try {
+      const o = this.config.orbit || {};
+      const d = MeteoCard.DEFAULTS.orbit;
 
-    const ha = (this.config.house_angle !== undefined) ? parseFloat(this.config.house_angle) : MeteoCard.DEFAULTS.house_angle;
-    let az = (this.config.invert_azimuth === true) ? (parseFloat(azimuth) + 180) % 360 : parseFloat(azimuth);
-    const rad = (az - ha) * Math.PI / 180;
-    return { left: cx + rx * Math.sin(rad), top: cy - ry * Math.cos(rad), elevation: parseFloat(elevation) || 0, azimuth: az };
-  } catch (e) { 
-    console.error('[MeteoCard] _getCoords:', e); 
-    return { left: 50, top: 50, elevation: 0, azimuth: 0 }; 
+      const rx = parseFloat(o.rx) || d.rx;
+      const ry = parseFloat(o.ry) || d.ry;
+      const cx = parseFloat(o.cx) || d.cx;
+      const cy = parseFloat(o.cy) || d.cy;
+      const parsedTilt = parseFloat(o.tilt);
+      const tilt = !isNaN(parsedTilt) ? parsedTilt : d.tilt;
+
+      const ha = (this.config.house_angle !== undefined) ? parseFloat(this.config.house_angle) : MeteoCard.DEFAULTS.house_angle;
+      let az = (this.config.invert_azimuth === true) ? (parseFloat(azimuth) + 180) % 360 : parseFloat(azimuth);
+      const rad = (az - ha) * Math.PI / 180;
+      const x0 = rx * Math.sin(rad);
+      const y0 = -ry * Math.cos(rad);
+      const tiltRad = tilt * Math.PI / 180;
+      const xRot = x0 * Math.cos(tiltRad) - y0 * Math.sin(tiltRad);
+      const yRot = x0 * Math.sin(tiltRad) + y0 * Math.cos(tiltRad);
+      return { left: cx + xRot, top: cy + yRot, elevation: parseFloat(elevation) || 0, azimuth: az };
+    } catch (e) { 
+      console.error('[MeteoCard] _getCoords:', e); 
+      return { left: 50, top: 50, elevation: 0, azimuth: 0 }; 
+    }
   }
-}
 
   _update() {
     try {
@@ -203,7 +208,6 @@ _getCoords(azimuth, elevation) {
       }
       
       if (!this._hass && !this.config.demo_mode) {
-        // Au lieu de sortir complètement, initialiser avec des données vides
         if (!this._initialized) {
           const emptyState = new MeteoState({
             condition: 'sunny',
@@ -223,7 +227,6 @@ _getCoords(azimuth, elevation) {
       } else {
         rawData = this._realData();
         if (!rawData) {
-          // Fallback avec données par défaut
           if (!this._initialized) {
             rawData = {
               condition: 'sunny',
@@ -633,4 +636,4 @@ if (!customElements.get('meteo-card')) {
 window.customCards = window.customCards || [];
 window.customCards.push(CARD_CONFIG);
 
-console.info("%c MeteoCSS Card %c v1.0.6 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
+console.info("%c MeteoCSS Card %c v1.0.7 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
