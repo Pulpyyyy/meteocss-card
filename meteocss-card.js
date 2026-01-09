@@ -1,3 +1,10 @@
+const CARD_CONFIG = {
+  type: 'meteo-card',
+  name: 'MeteoCSS Card',
+  description: 'Weather card with realistic weather conditions, sky, sun, and moon.',
+  preview: true
+};
+
 class MeteoState {
   constructor(data = {}) {
     this.condition = data.condition || 'sunny';
@@ -86,7 +93,6 @@ class MeteoCard extends HTMLElement {
       this.config = config;
       this.layers = config.layers || ['sky', 'sun', 'moon', 'background', 'foreground'];
       
-      // Initialiser content si pas encore fait
       if (!this.content) {
         this.innerHTML = `<ha-card></ha-card>`;
         this.content = this.querySelector('ha-card');
@@ -101,6 +107,23 @@ class MeteoCard extends HTMLElement {
         this._startDemo();
       } else {
         this._stopDemo();
+      }
+      
+      // Force l'affichage immédiat en preview avec données par défaut
+      if (!this._initialized) {
+        const defaultState = new MeteoState({
+          condition: 'sunny',
+          isNight: false,
+          sunPos: { left: 50, top: 50, elevation: 80, azimuth: 160 },
+          moonPos: { left: 50, top: 50, elevation: -25, azimuth: 340 },
+          windSpeed: 0
+        });
+        this._renderAll(defaultState);
+        // Assurer que la démo UI est bien accessible en avant
+        setTimeout(() => {
+          const demoUI = this.content?.querySelector('.demo-ui-container');
+          if (demoUI) demoUI.style.zIndex = '9999';
+        }, 0);
       }
     } catch (e) { 
       console.error('[MeteoCard] setConfig:', e); 
@@ -167,15 +190,22 @@ class MeteoCard extends HTMLElement {
 
   _update() {
     try {
-      // Vérification stricte du contenu
       if (!this.content) {
         console.warn('[MeteoCard] Content not initialized');
         return;
       }
       
-      // Ne pas sortir si on est en démo mode (même sans hass)
       if (!this._hass && !this.config.demo_mode) {
-        console.warn('[MeteoCard] No hass data and not in demo mode');
+        // Au lieu de sortir complètement, initialiser avec des données vides
+        if (!this._initialized) {
+          const emptyState = new MeteoState({
+            condition: 'sunny',
+            isNight: false,
+            sunPos: { left: 50, top: 50, elevation: 80, azimuth: 160 },
+            moonPos: { left: 50, top: 50, elevation: -25, azimuth: 340 }
+          });
+          this._renderAll(emptyState);
+        }
         return;
       }
       
@@ -186,8 +216,18 @@ class MeteoCard extends HTMLElement {
       } else {
         rawData = this._realData();
         if (!rawData) {
-          console.warn('[MeteoCard] Could not get real data');
-          return;
+          // Fallback avec données par défaut
+          if (!this._initialized) {
+            rawData = {
+              condition: 'sunny',
+              isNight: false,
+              sunPos: { left: 50, top: 50, elevation: 80, azimuth: 160 },
+              moonPos: { left: 50, top: 50, elevation: -25, azimuth: 340 },
+              windSpeed: 0
+            };
+          } else {
+            return;
+          }
         }
       }
 
@@ -206,8 +246,7 @@ class MeteoCard extends HTMLElement {
     } catch (e) { 
       console.error('[MeteoCard] _update:', e); 
     }
-}
-
+  }
 
   _updateDemo() {
     const now = Date.now();
@@ -343,7 +382,7 @@ class MeteoCard extends HTMLElement {
       if (this.config.demo_mode) html += this._demoUI();
       
       this.layers.forEach(l => { 
-        html += `<div class="layer-container" style="z-index:${this._zIdx(l)*1000};">${this._renderLayer(l, condition, isNight, sunPos, moonPos, moonPhase, rising, css, windSpeed)}</div>`; 
+        html += `<div class="layer-container" style="z-index:${this._zIdx(l)};">${this._renderLayer(l, condition, isNight, sunPos, moonPos, moonPhase, rising, css, windSpeed)}</div>`;
       });
 
       this.content.innerHTML = html;
@@ -540,7 +579,7 @@ class MeteoCard extends HTMLElement {
     return h;
   }
 
-  _zIdx(l) { return { 'sky': 1, 'sun': 2, 'moon': 2, 'background': 3, 'foreground': 4 }[l] || 2; }
+  _zIdx(l) { return { 'sky': 1, 'sun': 2, 'moon': 2, 'background': 10, 'foreground': 500 }[l] || 2; }
 
   _weatherMatrix(state) {
     const s = (state || '').toLowerCase();
@@ -572,7 +611,7 @@ class MeteoCard extends HTMLElement {
       @keyframes rain-fall { to { transform:translateY(110vh) skewX(-15deg); } }
       @keyframes snow-fall { 0% { transform: translateY(-10vh); } 100% { transform: translateY(110vh); } }
       @keyframes snow-sway { 0% { margin-left: calc(var(--sway) * -1); } 100% { margin-left: var(--sway); } }
-      .lightning { position: absolute; inset: 0; background: white; opacity: 0; animation: flash 5s infinite; z-index: 1000; mix-blend-mode: overlay; }
+      .lightning { position: absolute; inset: 0; background: white; opacity: 0; animation: flash 5s infinite; z-index: 998; mix-blend-mode: overlay; }
       @keyframes flash { 0%,90%,94%,100%{opacity:0;} 92%{opacity:0.4;} }
       @keyframes fog-boil { 0% { transform: scale(1) translateY(0); opacity: 0.15; } 50% { opacity: 0.85; } 100% { transform: scale(1.15) translateY(-20px); opacity: 0.15; } }
       .sun-container, .moon-container { transition: left 0.5s linear, top 0.5s linear; }
@@ -580,11 +619,11 @@ class MeteoCard extends HTMLElement {
     this.appendChild(s);
   }
 }
-customElements.define('meteo-card', MeteoCard);
-console.info("%c MeteoCSS Card %c v1.0.4 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
+if (!customElements.get('meteo-card')) {
+  customElements.define('meteo-card', MeteoCard);
+}
+
 window.customCards = window.customCards || [];
-window.customCards.push({
-    type: "meteocss-card",
-    name: "MeteoCSS Card",
-    description: "Weather card with realistic weather conditions, sky, sun, and moon."
-});;
+window.customCards.push(CARD_CONFIG);
+
+console.info("%c MeteoCSS Card %c v1.0.5 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
