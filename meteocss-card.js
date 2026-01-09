@@ -22,7 +22,7 @@ class MeteoState {
 class MeteoCard extends HTMLElement {
   static get DEFAULTS() {
     return {
-      orbit: { rx: 45, ry: 40 }, 
+      orbit: { rx: 45, ry: 40, cx: 50, cy: 50}, 
       sun: { disc_radius: 8, halo_radius: 50, aura_radius: 130, aura_opacity: 0.15, halo_opacity: 0.4, zoom: 1.0, colors: { aura: '#FFCC00', halo: '#FFFFFF', disc: '#FFFFFF' } },
       moon: { disc_radius: 8, halo_radius: 35, aura_radius: 80, aura_opacity: 0.1, halo_opacity: 0.2, zoom: 1.0, colors: { aura: '#FFFFFF', disc_light: '#FDFDFD', disc_dark: '#9595A5' } },
       location: 'weather.home', sun_entity: 'sun.sun', moon_azimuth_entity: 'sensor.luna_lunar_azimuth', moon_elevation_entity: 'sensor.luna_lunar_elevation', moon_phase_entity: 'sensor.luna_lunar_phase', moon_degrees_entity: 'sensor.luna_lunar_phase_degrees', house_angle: 25, invert_azimuth: false,
@@ -177,16 +177,23 @@ class MeteoCard extends HTMLElement {
     return div.innerHTML;
   }
 
-  _getCoords(azimuth, elevation) {
-    try {
-      const o = this.config.orbit || MeteoCard.DEFAULTS.orbit;
-      const rx = parseFloat(o.rx) || 45, ry = parseFloat(o.ry) || 40;
-      const ha = (this.config.house_angle !== undefined) ? parseFloat(this.config.house_angle) : MeteoCard.DEFAULTS.house_angle;
-      let az = (this.config.invert_azimuth === true) ? (parseFloat(azimuth) + 180) % 360 : parseFloat(azimuth);
-      const rad = (az - ha) * Math.PI / 180;
-      return { left: 50 + rx * Math.sin(rad), top: 50 - ry * Math.cos(rad), elevation: parseFloat(elevation) || 0, azimuth: az };
-    } catch (e) { console.error('[MeteoCard] _getCoords:', e); return { left: 50, top: 50, elevation: 0, azimuth: 0 }; }
+_getCoords(azimuth, elevation) {
+  try {
+    const o = this.config.orbit || MeteoCard.DEFAULTS.orbit;
+    const rx = parseFloat(o.rx) || 45;
+    const ry = parseFloat(o.ry) || 40;
+    const cx = parseFloat(o.cx) || 50;
+    const cy = parseFloat(o.cy) || 50;
+
+    const ha = (this.config.house_angle !== undefined) ? parseFloat(this.config.house_angle) : MeteoCard.DEFAULTS.house_angle;
+    let az = (this.config.invert_azimuth === true) ? (parseFloat(azimuth) + 180) % 360 : parseFloat(azimuth);
+    const rad = (az - ha) * Math.PI / 180;
+    return { left: cx + rx * Math.sin(rad), top: cy - ry * Math.cos(rad), elevation: parseFloat(elevation) || 0, azimuth: az };
+  } catch (e) { 
+    console.error('[MeteoCard] _getCoords:', e); 
+    return { left: 50, top: 50, elevation: 0, azimuth: 0 }; 
   }
+}
 
   _update() {
     try {
@@ -626,4 +633,4 @@ if (!customElements.get('meteo-card')) {
 window.customCards = window.customCards || [];
 window.customCards.push(CARD_CONFIG);
 
-console.info("%c MeteoCSS Card %c v1.0.5 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
+console.info("%c MeteoCSS Card %c v1.0.6 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");

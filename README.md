@@ -111,8 +111,10 @@ moon_phase_degrees_entity: sensor.luna_lunar_phase_degrees     # Moon phase orie
 
 # Orbit Configuration (percentage of container)
 orbit:
-  rx: 45  # Horizontal radius (controls left-right position range)
-  ry: 40  # Vertical radius (controls up-down position range)
+  rx: 45  # Horizontal radius (controls the width of the elliptical path)
+  ry: 40  # Vertical radius (controls the height of the elliptical path)
+  cx: 50  # Horizontal center (offsets the entire orbit left or right)
+  cy: 50  # Vertical center (offsets the entire orbit up or down)
 
 # House Orientation
 house_angle: 25           # Angle offset for your location (degrees, 0-360)
