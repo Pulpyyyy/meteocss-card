@@ -44,38 +44,83 @@ class MeteoCard extends HTMLElement {
 
   set hass(hass) {
     try {
-      if (this.config && !this.config.demo_mode) {
+      // S'assurer que le contenu est initialisé en premier
+      if (!this.content) {
+        this.innerHTML = `<ha-card></ha-card>`;
+        this.content = this.querySelector('ha-card');
+        
+        // Vérification stricte
+        if (!this.content) {
+          console.error('[MeteoCard] Failed to initialize content container');
+          return;
+        }
+        
+        this._injectStyles();
+      }
+      
+      // En mode démo, on ignore les vérifications d'état
+      if (!this.config.demo_mode) {
         const weatherEnt = this._getEntity('weather', 'location');
         const sunEnt = this._getEntity('sun_entity', 'sun_entity');
         const newWeatherState = hass.states[weatherEnt]?.state;
         const newSunAzimuth = hass.states[sunEnt]?.attributes?.azimuth;
-        if (this._previousStates.weather === newWeatherState && this._previousStates.azimuth === newSunAzimuth) {
+        
+        if (this._previousStates.weather === newWeatherState && 
+            this._previousStates.azimuth === newSunAzimuth) {
           this._hass = hass;
           return;
         }
         this._previousStates.weather = newWeatherState;
         this._previousStates.azimuth = newSunAzimuth;
       }
+      
       this._hass = hass;
-      if (!this.content) {
-        this.innerHTML = `<ha-card></ha-card>`;
-        this.content = this.querySelector('ha-card');
-        this._injectStyles();
-      }
       this._update();
-    } catch (e) { console.error('[MeteoCard] hass setter:', e); }
+    } catch (e) { 
+      console.error('[MeteoCard] hass setter:', e); 
+    }
   }
 
   setConfig(config) {
     try {
       this.config = config;
       this.layers = config.layers || ['sky', 'sun', 'moon', 'background', 'foreground'];
-      if (this.config.demo_mode) this._startDemo();
-      else this._stopDemo();
-    } catch (e) { console.error('[MeteoCard] setConfig:', e); }
+      
+      // Initialiser content si pas encore fait
+      if (!this.content) {
+        this.innerHTML = `<ha-card></ha-card>`;
+        this.content = this.querySelector('ha-card');
+        if (!this.content) {
+          console.error('[MeteoCard] Failed to initialize content in setConfig');
+          return;
+        }
+        this._injectStyles();
+      }
+      
+      if (this.config.demo_mode) {
+        this._startDemo();
+      } else {
+        this._stopDemo();
+      }
+    } catch (e) { 
+      console.error('[MeteoCard] setConfig:', e); 
+    }
   }
 
   disconnectedCallback() { this._cleanup(); }
+
+  getCardSize() {
+    return 6;
+  }
+
+  getGridOptions() {
+    return {
+      min_columns: 2,
+      max_columns: 4,
+      min_rows: 3,
+      max_rows: 10
+    };
+  }
 
   _cleanup() {
     this._stopDemo();
@@ -122,7 +167,17 @@ class MeteoCard extends HTMLElement {
 
   _update() {
     try {
-      if (!this.content || (!this._hass && !this.config.demo_mode)) return;
+      // Vérification stricte du contenu
+      if (!this.content) {
+        console.warn('[MeteoCard] Content not initialized');
+        return;
+      }
+      
+      // Ne pas sortir si on est en démo mode (même sans hass)
+      if (!this._hass && !this.config.demo_mode) {
+        console.warn('[MeteoCard] No hass data and not in demo mode');
+        return;
+      }
       
       let rawData;
       if (this.config.demo_mode) {
@@ -130,12 +185,17 @@ class MeteoCard extends HTMLElement {
         rawData = this._demoData();
       } else {
         rawData = this._realData();
-        if (!rawData) return;
+        if (!rawData) {
+          console.warn('[MeteoCard] Could not get real data');
+          return;
+        }
       }
 
       const state = new MeteoState(rawData);
 
-      if (!this._initialized || this._lastCondition !== state.condition || (this.config.demo_mode && state.isNight !== this._lastNight)) {
+      if (!this._initialized || 
+          this._lastCondition !== state.condition || 
+          (this.config.demo_mode && state.isNight !== this._lastNight)) {
         this._initialized = true;
         this._lastCondition = state.condition;
         this._lastNight = state.isNight;
@@ -143,8 +203,11 @@ class MeteoCard extends HTMLElement {
       } else {
         this._updateDynamic(state);
       }
-    } catch (e) { console.error('[MeteoCard] _update:', e); }
-  }
+    } catch (e) { 
+      console.error('[MeteoCard] _update:', e); 
+    }
+}
+
 
   _updateDemo() {
     const now = Date.now();
@@ -495,8 +558,8 @@ class MeteoCard extends HTMLElement {
   _injectStyles() {
     const s = document.createElement('style');
     s.textContent = `
-      ha-card { width:100%; height:100%; position:relative; overflow:hidden; background:transparent!important; border:none!important; }
-      .layer-container { pointer-events:none; position:absolute; inset:0; }
+    ha-card { width: 100% !important; height: 100% !important; min-height: 320px !important; position: relative !important; overflow: hidden !important; background: transparent !important; border: none !important; display: block !important; }
+    .layer-container { pointer-events:none; position:absolute; inset:0; }
       .demo-ui-container { position:absolute; top:10px; left:10px; z-index:9999; pointer-events:auto; display:flex; flex-direction:column; gap:8px; }
       .demo-top-bar { display:flex; gap:5px; align-items:center; }
       .demo-select { background: rgba(0,0,0,0.85); color: white; border: 1px solid rgba(255,255,255,0.2); padding: 5px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; backdrop-filter: blur(5px); }
@@ -522,7 +585,7 @@ class MeteoCard extends HTMLElement {
   }
 }
 customElements.define('meteo-card', MeteoCard);
-console.info("%c MeteoCSS Card %c v1.0.2 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
+console.info("%c MeteoCSS Card %c v1.0.3 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
 window.customCards = window.customCards || [];
 window.customCards.push({
     type: "meteocss-card",
