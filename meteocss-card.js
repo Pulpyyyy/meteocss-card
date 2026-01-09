@@ -558,10 +558,10 @@ class MeteoCard extends HTMLElement {
   _injectStyles() {
     const s = document.createElement('style');
     s.textContent = `
-    ha-card { width: 100% !important; height: 100% !important; min-height: 320px !important; position: relative !important; overflow: hidden !important; background: transparent !important; border: none !important; display: block !important; }
-    .layer-container { pointer-events:none; position:absolute; inset:0; }
-      .demo-ui-container { position:absolute; top:10px; left:10px; z-index:9999; pointer-events:auto; display:flex; flex-direction:column; gap:8px; }
-      .demo-top-bar { display:flex; gap:5px; align-items:center; }
+      ha-card { width: 100% !important; height: 100% !important; min-height: 320px !important; position: relative !important; overflow: hidden !important; background: transparent !important; border: none !important; display: block !important; isolation: isolate; }
+      .layer-container { pointer-events: none; position: absolute; inset: 0; }
+      .demo-ui-container { position: absolute; top: 10px; left: 10px; z-index: 999; pointer-events: auto; display: flex; flex-direction: column; gap: 8px; }
+      .demo-top-bar { display: flex; gap: 5px; align-items: center; }
       .demo-select { background: rgba(0,0,0,0.85); color: white; border: 1px solid rgba(255,255,255,0.2); padding: 5px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; backdrop-filter: blur(5px); }
       .demo-btn-play { background: rgba(0,0,0,0.85); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 6px; width: 30px; height: 26px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; }
       .demo-data { background: rgb(20, 20, 20); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 10px; color: #eee; font-family: monospace; font-size: 10px; line-height: 1.4; pointer-events: none; text-shadow: 1px 1px 1px black; min-width: 200px; min-height: 80px; box-shadow: 0 4px 15px rgba(0,0,0,0.6); }
@@ -572,20 +572,16 @@ class MeteoCard extends HTMLElement {
       @keyframes rain-fall { to { transform:translateY(110vh) skewX(-15deg); } }
       @keyframes snow-fall { 0% { transform: translateY(-10vh); } 100% { transform: translateY(110vh); } }
       @keyframes snow-sway { 0% { margin-left: calc(var(--sway) * -1); } 100% { margin-left: var(--sway); } }
-      .lightning { position:absolute; inset:0; background:white; opacity:0; animation:flash 5s infinite; z-index:1000; mix-blend-mode: overlay; }
+      .lightning { position: absolute; inset: 0; background: white; opacity: 0; animation: flash 5s infinite; z-index: 1000; mix-blend-mode: overlay; }
       @keyframes flash { 0%,90%,94%,100%{opacity:0;} 92%{opacity:0.4;} }
-      @keyframes fog-boil { 
-        0% { transform: scale(1) translateY(0); opacity: 0.15; } 
-        50% { opacity: 0.85; } 
-        100% { transform: scale(1.15) translateY(-20px); opacity: 0.15; } 
-      }
+      @keyframes fog-boil { 0% { transform: scale(1) translateY(0); opacity: 0.15; } 50% { opacity: 0.85; } 100% { transform: scale(1.15) translateY(-20px); opacity: 0.15; } }
       .sun-container, .moon-container { transition: left 0.5s linear, top 0.5s linear; }
     `;
     this.appendChild(s);
   }
 }
 customElements.define('meteo-card', MeteoCard);
-console.info("%c MeteoCSS Card %c v1.0.3 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
+console.info("%c MeteoCSS Card %c v1.0.4 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
 window.customCards = window.customCards || [];
 window.customCards.push({
     type: "meteocss-card",
