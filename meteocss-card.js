@@ -25,10 +25,38 @@ class MeteoCard extends HTMLElement {
       orbit: { rx: 45, ry: 40, cx: 50, cy: 50, tilt: 0}, 
       sun: { disc_radius: 8, halo_radius: 50, aura_radius: 130, aura_opacity: 0.15, halo_opacity: 0.4, zoom: 1.0, colors: { aura: '#FFCC00', halo: '#FFFFFF', disc: '#FFFFFF' } },
       moon: { disc_radius: 8, halo_radius: 35, aura_radius: 80, aura_opacity: 0.1, halo_opacity: 0.2, zoom: 1.0, colors: { aura: '#FFFFFF', disc_light: '#FDFDFD', disc_dark: '#9595A5' } },
-      location: 'weather.home', sun_entity: 'sun.sun', moon_azimuth_entity: 'sensor.luna_lunar_azimuth', moon_elevation_entity: 'sensor.luna_lunar_elevation', moon_phase_entity: 'sensor.luna_lunar_phase', moon_degrees_entity: 'sensor.luna_lunar_phase_degrees', house_angle: 25, invert_azimuth: false,
-      colors: { night: { clear: '#25259C 0%, #2A2A60 40%, #0F0344 100%', normal: '#272762 0%, #302C2C 100%', dark: '#0E0E54 0%, #000000 100%' }, day: { normal: '#FFFFFF 0%, #4BA0DB 50%, #004390 100%', inter: '#B9DFFF 0%, #B0C4C8 60%, #7A9BA0 100%', rainy: '#B9DFFF 0%, #C1CBD0 60%, #91A6B0 100%', dark: '#B9DFFF 0%, #2F4F4F 60%, #708090 100%', snowy: '#B0E2FF 0%, #AAAAAA 60%, #D3D3D3 100%', grey: '#B4C4CB 0%, #A4A6A8 60%, #94A9C7 100%' }, sunrise: '#FFF5C3 0%, #FFD966 10%, #FFA64D 30%, #FF7F50 50%, #5D0000 80%, #002340 100%', sunset: '#FEFEFFCC 0%, #ECFF00 10%, #FD3229 25%, #F30000 45%, #5D0000 75%, #001A33 100%' },
+      location: 'weather.home', 
+      sun_entity: 'sun.sun', 
+      moon_azimuth_entity: 'sensor.luna_lunar_azimuth', 
+      moon_elevation_entity: 'sensor.luna_lunar_elevation', 
+      moon_phase_entity: 'sensor.luna_lunar_phase', 
+      moon_degrees_entity: 'sensor.luna_lunar_phase_degrees', 
+      house_angle: 25, 
+      invert_azimuth: false,
+      
+      rain_intensity: { heavy: 200, normal: 100, low: 50 },
+      snow_intensity: { normal: 80 },
+      
+      colors: { 
+        night: { clear: '#25259C 0%, #2A2A60 40%, #0F0344 100%', normal: '#272762 0%, #302C2C 100%', dark: '#0E0E54 0%, #000000 100%' }, 
+        day: { normal: '#FFFFFF 0%, #4BA0DB 50%, #004390 100%', inter: '#B9DFFF 0%, #B0C4C8 60%, #7A9BA0 100%', rainy: '#B9DFFF 0%, #C1CBD0 60%, #91A6B0 100%', dark: '#B9DFFF 0%, #2F4F4F 60%, #708090 100%', snowy: '#B0E2FF 0%, #AAAAAA 60%, #D3D3D3 100%', grey: '#B4C4CB 0%, #A4A6A8 60%, #94A9C7 100%' }, 
+        sunrise: '#FFF5C3 0%, #FFD966 10%, #FFA64D 30%, #FF7F50 50%, #5D0000 80%, #002340 100%', 
+        sunset: '#FEFEFFCC 0%, #ECFF00 10%, #FD3229 25%, #F30000 45%, #5D0000 75%, #001A33 100%' 
+      },
       clouds: { heavy: [15, 5, 4], normal: [10, 3, 2], low: [4, 2, 1], minimal: [2, 2, 0], none: [0, 0, 0] },
-      conditions: { 'lightning-rainy': { clouds: 'heavy', day_sky: 'dark', night_sky: 'dark', drops: 500, lightning: true }, 'pouring': { clouds: 'heavy', day_sky: 'dark', night_sky: 'dark', drops: 350 }, 'rainy': { clouds: 'normal', day_sky: 'rainy', night_sky: 'normal', drops: 150 }, 'snowy': { clouds: 'normal', day_sky: 'snowy', night_sky: 'normal', flakes: 120 }, 'cloudy': { clouds: 'heavy', day_sky: 'grey', night_sky: 'normal' }, 'partlycloudy': { clouds: 'low', day_sky: 'inter', night_sky: 'normal' }, 'sunny': { clouds: 'minimal', day_sky: 'normal', night_sky: 'clear' }, 'clear-night': { clouds: 'none', stars: true, night_sky: 'clear' }, 'fog': { clouds: 'none', fog: true, day_sky: 'grey', night_sky: 'normal' }, 'default': { clouds: 'low', day_sky: 'normal', night_sky: 'normal' } }
+      
+      conditions: { 
+        'lightning-rainy': { clouds: 'heavy',  day_sky: 'dark',  night_sky: 'dark',   drops: 'heavy', lightning: true }, 
+        'pouring':         { clouds: 'heavy',  day_sky: 'dark',  night_sky: 'dark',   drops: 'normal' }, 
+        'rainy':           { clouds: 'normal', day_sky: 'rainy', night_sky: 'normal', drops: 'low' }, 
+        'snowy':           { clouds: 'normal', day_sky: 'snowy', night_sky: 'normal', flakes: 'normal' }, 
+        'cloudy':          { clouds: 'heavy',  day_sky: 'grey',  night_sky: 'normal' }, 
+        'partlycloudy':    { clouds: 'low',    day_sky: 'inter', night_sky: 'normal' }, 
+        'sunny':           { clouds: 'minimal', day_sky: 'normal', night_sky: 'clear' }, 
+        'clear-night':     { clouds: 'none',   stars: true,      night_sky: 'clear' }, 
+        'fog':             { clouds: 'none',   fog: true,        day_sky: 'grey',     night_sky: 'normal' }, 
+        'default':         { clouds: 'low',    day_sky: 'normal', night_sky: 'normal' } 
+      }
     };
   }
 
@@ -457,21 +485,28 @@ _getCoords(azimuth, elevation) {
     try {
       const conf = MeteoCard.DEFAULTS;
       const cond = conf.conditions[condition] || conf.conditions.default;
-      if (layer === 'sky') return `<div class="sky-bg" style="position:absolute; inset:0; transition: background 3s ease-in-out;"></div>` + (isNight ? `<div style="position:absolute; inset:0;">${this._stars(100, css)}${this._shootings(2, css)}</div>` : '');
-      if (layer === 'sun') return `<div class="sun-container" style="position:absolute; transform:translate(-50%, -50%); pointer-events:none; display:none; width:900px; height:900px;"></div>`;
-      if (layer === 'moon') return `<div class="moon-container" style="position:absolute; transform:translate(-50%, -50%); pointer-events:none; display:none; width:900px; height:900px;"></div>`;
-      
+      if (layer === 'sky') {
+        return `<div class="sky-bg" style="position:absolute; inset:0; transition: background 3s ease-in-out;"></div>` + 
+               (isNight ? `<div style="position:absolute; inset:0;">${this._stars(100, css)}${this._shootings(2, css)}</div>` : '');
+      }
+      if (layer === 'sun' || layer === 'moon') {
+        return `<div class="${layer}-container" style="position:absolute; transform:translate(-50%, -50%); pointer-events:none; display:none; width:900px; height:900px;"></div>`;
+      }
       let h = '';
       const bg = ['partlycloudy', 'sunny', 'clear-night'].includes(condition);
       if (layer === 'background') return (bg && cond.clouds !== 'none') ? this._clouds(cond.clouds, css, isNight, windSpeed) : '';
       if (layer === 'foreground') {
         if (cond.lightning) h += `<div class="lightning"></div>`;
         if (!bg && cond.clouds !== 'none') h += this._clouds(cond.clouds, css, isNight, windSpeed);
-        if (cond.drops) h += this._rain(cond.drops, css);
-        if (cond.flakes) h += this._snow(cond.flakes, css);
-        if (cond.fog) h += this._fog(5, css);
-        return h;
-      }
+        if (cond.drops) {
+          const dropsCount = this.config.rain_intensity?.[cond.drops] || conf.rain_intensity[cond.drops] || 0;
+          h += this._rain(dropsCount, css);
+        }
+        if (cond.flakes) {
+          const flakesCount = this.config.snow_intensity?.[cond.flakes] || conf.snow_intensity[cond.flakes] || 0;
+          h += this._snow(flakesCount, css);
+        }
+        if (cond.fog) h += this._fog(5, css); return h; }
       return '';
     } catch (e) { console.error('[MeteoCard] _renderLayer:', e); return ''; }
   }
@@ -636,4 +671,4 @@ if (!customElements.get('meteo-card')) {
 window.customCards = window.customCards || [];
 window.customCards.push(CARD_CONFIG);
 
-console.info("%c MeteoCSS Card %c v1.0.7 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
+console.info("%c MeteoCSS Card %c v1.0.8 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");

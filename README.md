@@ -171,6 +171,16 @@ clouds:
   minimal: [2, 2, 0]     # Minimal clouds
   none: [0, 0, 0]        # Clear sky
 
+# Rain Configuration
+rain_intensity:
+  heavy: 200     # Downpour during storms
+  normal: 100
+  low: 50        # Very light rain
+
+# Snow Configuration
+snow_intensity:
+  normal: 80
+
 # Render Layers (order matters for z-index)
 layers:
   - sky
@@ -218,20 +228,18 @@ moon:
 
 ## 🎮 Supported Weather Conditions
 
-| Icon | Condition | Clouds | Day | Night | Rain | Flakes | Lightning |
-|------|-----------|--------|-----|-------|------|--------|-----------|
-| ☀️ | sunny | minimal | normal | normal | — | — | — |
-| ⛅ | partlycloudy | low | intermediate | normal | — | — | — |
-| ☁️☁️ | cloudy | low | grey | normal | — | — | — |
-| 💧 | rainy | normal | rainy | normal | normal | — | — |
-| 💧💧 | pouring | normal | dark | dark | normal | — | — |
-| ⚡ | lightning-rainy | heavy | grey | dark | heavy | — | lightning |
-| ⚡ | lightning | heavy | dark | dark | heavy | — | lightning |
-| ❄️ | snowy | low | snowy | normal | — | normal | — |
-| ❄️💧 | snowy-rainy | low | rainy | normal | middle | low | — |
-| 🌫️ | fog | — | grey | normal | — | — | — |
-| 🌙 | clear-night | minimal | normal | clear | — | — | — |
-| — | default | low | normal | normal | — | — | — |
+| Icon | Condition | Clouds | Sky | Rain (Drops) | Snow (Flakes) | Lightning |
+|------|-----------|--------|-----|--------------|---------------|-----------|
+| ☀️ | `sunny` | minimal | normal | clear | — | — |
+| ⛅ | `partlycloudy` | low | normal | — | — | — |
+| ☁️ | `cloudy` | heavy | grey | normal | — | — |
+| 💧 | `rainy` | normal | rainy | normal | low | — |
+| 🌧️ | `pouring` | heavy | dark | dark | normal | — |
+| ⛈️ | `lightning-rainy` | heavy | dark | dark | heavy | Yes |
+| ❄️ | `snowy` | normal | snowy | normal | normal | — |
+| 🌫️ | `fog` | none | grey | normal | — | — |
+| 🌙 | `clear-night` | none | — | clear | — | — |
+| — | `default` | low | normal | normal | — | — |
 
 ## 🧪 Demo Mode
 
