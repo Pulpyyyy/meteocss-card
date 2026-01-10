@@ -1,647 +1,1023 @@
 const CARD_CONFIG = {
-  type: 'meteo-card',
-  name: 'MeteoCSS Card',
-  description: 'Weather card with realistic weather conditions, sky, sun, and moon.',
-  preview: true
+    type: 'meteo-card',
+    name: 'MeteoCSS Card',
+    description: 'Weather card with realistic weather conditions, sky, sun, and moon.',
+    preview: true
 };
 
 class MeteoState {
-  constructor(data = {}) {
-    this.condition = data.condition || 'sunny';
-    this.isNight = data.isNight ?? false;
-    this.sunPos = data.sunPos || { left: 50, top: 50, elevation: 80, azimuth: 160 };
-    this.moonPos = data.moonPos || { left: 50, top: 50, elevation: -25, azimuth: 340 };
-    this.moonPhase = data.moonPhase || 'Full Moon';
-    this.moonPhaseDegrees = data.moonPhaseDegrees || 0;
-    this.rising = data.rising ?? false;
-    this.simulatedHour = data.simulatedHour ?? 12;
-    this.windSpeed = data.windSpeed ?? 25;
-  }
+    constructor(data = {}) {
+        this.condition = data.condition || 'sunny';
+        this.isNight = data.isNight ?? false;
+        this.sunPos = data.sunPos || {
+            left: 50,
+            top: 50,
+            elevation: 80,
+            azimuth: 160
+        };
+        this.moonPos = data.moonPos || {
+            left: 50,
+            top: 50,
+            elevation: -25,
+            azimuth: 340
+        };
+        this.moonPhase = data.moonPhase || 'Full Moon';
+        this.moonPhaseDegrees = data.moonPhaseDegrees || 0;
+        this.rising = data.rising ?? false;
+        this.simulatedHour = data.simulatedHour ?? 12;
+        this.windSpeed = data.windSpeed ?? 25;
+    }
 }
 
 class MeteoCard extends HTMLElement {
-  static get DEFAULTS() {
-    return {
-      orbit: { rx: 45, ry: 40, cx: 50, cy: 50, tilt: 0}, 
-      sun: { disc_radius: 8, halo_radius: 50, aura_radius: 130, aura_opacity: 0.15, halo_opacity: 0.4, zoom: 1.0, colors: { aura: '#FFCC00', halo: '#FFFFFF', disc: '#FFFFFF' } },
-      moon: { disc_radius: 8, halo_radius: 35, aura_radius: 80, aura_opacity: 0.1, halo_opacity: 0.2, zoom: 1.0, colors: { aura: '#FFFFFF', disc_light: '#FDFDFD', disc_dark: '#9595A5' } },
-      location: 'weather.home', 
-      sun_entity: 'sun.sun', 
-      moon_azimuth_entity: 'sensor.luna_lunar_azimuth', 
-      moon_elevation_entity: 'sensor.luna_lunar_elevation', 
-      moon_phase_entity: 'sensor.luna_lunar_phase', 
-      moon_degrees_entity: 'sensor.luna_lunar_phase_degrees', 
-      house_angle: 25, 
-      invert_azimuth: false,
-      
-      rain_intensity: { heavy: 200, normal: 100, low: 50 },
-      snow_intensity: { normal: 80 },
-      
-      colors: { 
-        night: { clear: '#25259C 0%, #2A2A60 40%, #0F0344 100%', normal: '#272762 0%, #302C2C 100%', dark: '#0E0E54 0%, #000000 100%' }, 
-        day: { normal: '#FFFFFF 0%, #4BA0DB 50%, #004390 100%', inter: '#B9DFFF 0%, #B0C4C8 60%, #7A9BA0 100%', rainy: '#B9DFFF 0%, #C1CBD0 60%, #91A6B0 100%', dark: '#B9DFFF 0%, #2F4F4F 60%, #708090 100%', snowy: '#B0E2FF 0%, #AAAAAA 60%, #D3D3D3 100%', grey: '#B4C4CB 0%, #A4A6A8 60%, #94A9C7 100%' }, 
-        sunrise: '#FFF5C3 0%, #FFD966 10%, #FFA64D 30%, #FF7F50 50%, #5D0000 80%, #002340 100%', 
-        sunset: '#FEFEFFCC 0%, #ECFF00 10%, #FD3229 25%, #F30000 45%, #5D0000 75%, #001A33 100%' 
-      },
-      clouds: { heavy: [15, 5, 4], normal: [10, 3, 2], low: [4, 2, 1], minimal: [2, 2, 0], none: [0, 0, 0] },
-      
-      conditions: { 
-        'lightning-rainy': { clouds: 'heavy',  day_sky: 'dark',  night_sky: 'dark',   drops: 'heavy', lightning: true }, 
-        'pouring':         { clouds: 'heavy',  day_sky: 'dark',  night_sky: 'dark',   drops: 'normal' }, 
-        'rainy':           { clouds: 'normal', day_sky: 'rainy', night_sky: 'normal', drops: 'low' }, 
-        'snowy':           { clouds: 'normal', day_sky: 'snowy', night_sky: 'normal', flakes: 'normal' }, 
-        'cloudy':          { clouds: 'heavy',  day_sky: 'grey',  night_sky: 'normal' }, 
-        'partlycloudy':    { clouds: 'low',    day_sky: 'inter', night_sky: 'normal' }, 
-        'sunny':           { clouds: 'minimal', day_sky: 'normal', night_sky: 'clear' }, 
-        'clear-night':     { clouds: 'none',   stars: true,      night_sky: 'clear' }, 
-        'fog':             { clouds: 'none',   fog: true,        day_sky: 'grey',     night_sky: 'normal' }, 
-        'default':         { clouds: 'low',    day_sky: 'normal', night_sky: 'normal' } 
-      }
-    };
-  }
+    static get DEFAULTS() {
+        return {
+            orbit: {
+                rx: 45,
+                ry: 40,
+                cx: 50,
+                cy: 50,
+                tilt: 0
+            },
+            sun: {
+                disc_radius: 8,
+                halo_radius: 50,
+                aura_radius: 130,
+                aura_opacity: 0.15,
+                halo_opacity: 0.4,
+                zoom: 1.0,
+                colors: {
+                    aura: '#FFCC00',
+                    halo: '#FFFFFF',
+                    disc: '#FFFFFF'
+                }
+            },
+            moon: {
+                disc_radius: 8,
+                halo_radius: 35,
+                aura_radius: 80,
+                aura_opacity: 0.1,
+                halo_opacity: 0.2,
+                zoom: 1.0,
+                colors: {
+                    aura: '#FFFFFF',
+                    disc_light: '#FDFDFD',
+                    disc_dark: '#9595A5'
+                }
+            },
+            location: 'weather.home',
+            sun_entity: 'sun.sun',
+            moon_azimuth_entity: 'sensor.luna_lunar_azimuth',
+            moon_elevation_entity: 'sensor.luna_lunar_elevation',
+            moon_phase_entity: 'sensor.luna_lunar_phase',
+            moon_degrees_entity: 'sensor.luna_lunar_phase_degrees',
+            house_angle: 25,
+            invert_azimuth: false,
 
-  constructor() {
-    super();
-    this.cloudCounter = 0;
-    this._initialized = false;
-    this._demoScenario = [];
-    this._lastCycleId = -1;
-    this._demoForcedCondition = 'auto';
-    this._demoPaused = false;
-    this._demoTimeOffset = 0;
-    this._lastUpdateTimestamp = Date.now();
-    this._demoRequest = undefined;
-    this._previousStates = {};
-    this._domCache = {};
-    this._demoListeners = [];
-    this.dynamicStyleSheet = null;
-  }
+            rain_intensity: {
+                heavy: 200,
+                normal: 100,
+                low: 50
+            },
+            snow_intensity: {
+                normal: 80
+            },
 
-  set hass(hass) {
-    try {
-      if (!this.content) {
-        this.innerHTML = `<ha-card></ha-card>`;
-        this.content = this.querySelector('ha-card');
-        
-        // Vérification stricte
-        if (!this.content) {
-          console.error('[MeteoCard] Failed to initialize content container');
-          return;
-        }
-        
-        this._injectStyles();
-      }
-      
-      if (!this.config.demo_mode) {
-        const weatherEnt = this._getEntity('weather', 'location');
-        const sunEnt = this._getEntity('sun_entity', 'sun_entity');
-        const newWeatherState = hass.states[weatherEnt]?.state;
-        const newSunAzimuth = hass.states[sunEnt]?.attributes?.azimuth;
-        
-        if (this._previousStates.weather === newWeatherState && 
-            this._previousStates.azimuth === newSunAzimuth) {
-          this._hass = hass;
-          return;
-        }
-        this._previousStates.weather = newWeatherState;
-        this._previousStates.azimuth = newSunAzimuth;
-      }
-      
-      this._hass = hass;
-      this._update();
-    } catch (e) { 
-      console.error('[MeteoCard] hass setter:', e); 
+            colors: {
+                night: {
+                    clear: '#25259C 0%, #2A2A60 40%, #0F0344 100%',
+                    normal: '#272762 0%, #302C2C 100%',
+                    dark: '#0E0E54 0%, #000000 100%'
+                },
+                day: {
+                    normal: '#FFFFFF 0%, #4BA0DB 50%, #004390 100%',
+                    inter: '#B9DFFF 0%, #B0C4C8 60%, #7A9BA0 100%',
+                    rainy: '#B9DFFF 0%, #C1CBD0 60%, #91A6B0 100%',
+                    dark: '#B9DFFF 0%, #2F4F4F 60%, #708090 100%',
+                    snowy: '#B0E2FF 0%, #AAAAAA 60%, #D3D3D3 100%',
+                    grey: '#B4C4CB 0%, #A4A6A8 60%, #94A9C7 100%'
+                },
+                sunrise: '#FFF5C3 0%, #FFD966 10%, #FFA64D 30%, #FF7F50 50%, #5D0000 80%, #002340 100%',
+                sunset: '#FEFEFFCC 0%, #ECFF00 10%, #FD3229 25%, #F30000 45%, #5D0000 75%, #001A33 100%'
+            },
+            clouds: {
+                heavy: [15, 5, 4],
+                normal: [10, 3, 2],
+                low: [4, 2, 1],
+                minimal: [2, 2, 0],
+                none: [0, 0, 0]
+            },
+
+            conditions: {
+                'lightning-rainy': {
+                    clouds: 'heavy',
+                    day_sky: 'dark',
+                    night_sky: 'dark',
+                    drops: 'heavy',
+                    lightning: true
+                },
+                'pouring': {
+                    clouds: 'heavy',
+                    day_sky: 'dark',
+                    night_sky: 'dark',
+                    drops: 'normal'
+                },
+                'rainy': {
+                    clouds: 'normal',
+                    day_sky: 'rainy',
+                    night_sky: 'normal',
+                    drops: 'low'
+                },
+                'snowy': {
+                    clouds: 'normal',
+                    day_sky: 'snowy',
+                    night_sky: 'normal',
+                    flakes: 'normal'
+                },
+                'cloudy': {
+                    clouds: 'heavy',
+                    day_sky: 'grey',
+                    night_sky: 'normal'
+                },
+                'partlycloudy': {
+                    clouds: 'low',
+                    day_sky: 'inter',
+                    night_sky: 'normal'
+                },
+                'sunny': {
+                    clouds: 'minimal',
+                    day_sky: 'normal',
+                    night_sky: 'clear'
+                },
+                'clear-night': {
+                    clouds: 'none',
+                    stars: true,
+                    night_sky: 'clear'
+                },
+                'fog': {
+                    clouds: 'none',
+                    fog: true,
+                    day_sky: 'grey',
+                    night_sky: 'normal'
+                },
+                'default': {
+                    clouds: 'low',
+                    day_sky: 'normal',
+                    night_sky: 'normal'
+                }
+            }
+        };
     }
-  }
 
-  setConfig(config) {
-    try {
-      this.config = config;
-      this.layers = config.layers || ['sky', 'sun', 'moon', 'background', 'foreground'];
-      
-      if (!this.content) {
-        this.innerHTML = `<ha-card></ha-card>`;
-        this.content = this.querySelector('ha-card');
-        if (!this.content) {
-          console.error('[MeteoCard] Failed to initialize content in setConfig');
-          return;
-        }
-        this._injectStyles();
-      }
-      
-      if (this.config.demo_mode) {
-        this._startDemo();
-      } else {
-        this._stopDemo();
-      }
-      
-      if (!this._initialized) {
-        const defaultState = new MeteoState({
-          condition: 'sunny',
-          isNight: false,
-          sunPos: { left: 50, top: 50, elevation: 80, azimuth: 160 },
-          moonPos: { left: 50, top: 50, elevation: -25, azimuth: 340 },
-          windSpeed: 0
-        });
-        this._renderAll(defaultState);
-        setTimeout(() => {
-          const demoUI = this.content?.querySelector('.demo-ui-container');
-          if (demoUI) demoUI.style.zIndex = '9999';
-        }, 0);
-      }
-    } catch (e) { 
-      console.error('[MeteoCard] setConfig:', e); 
+    constructor() {
+        super();
+        this.cloudCounter = 0;
+        this._moonMaskIdCounter = 0;
+        this._initialized = false;
+        this._demoScenario = [];
+        this._lastCycleId = -1;
+        this._demoForcedCondition = 'auto';
+        this._demoPaused = false;
+        this._demoTimeOffset = 0;
+        this._lastUpdateTimestamp = Date.now();
+        this._lastHassUpdate = 0;
+        this._demoRequest = undefined;
+        this._previousStates = {};
+        this._domCache = {};
+        this._demoListeners = [];
+        this.dynamicStyleSheet = null;
+        this._moonPhases = null;
+        this._orbitConfig = null;
+        this._loadedKeyframes = null;
+        this._keyframesSheet = null;
+        this._weatherEntityId = null;
+        this._sunEntityId = null;
+        this._moonAzimuthEntityId = null;
+        this._moonElevationEntityId = null;
+        this._moonPhaseEntityId = null;
+        this._cachedDemoOptions = null;
     }
-  }
 
-  disconnectedCallback() { this._cleanup(); }
+    set hass(hass) {
+        try {
+            if (!this.content) {
+                this.innerHTML = `<ha-card></ha-card>`;
+                this.content = this.querySelector('ha-card');
+                if (!this.content) {
+                    console.error('[MeteoCard] Failed to initialize content container');
+                    return;
+                }
+                this._injectStyles();
+            }
 
-  getCardSize() {
-    return 6;
-  }
+            if (!this.config.demo_mode) {
+                const now = Date.now();
+                if (this._lastHassUpdate && now - this._lastHassUpdate < 1000) {
+                    this._hass = hass;
+                    return;
+                }
+                this._lastHassUpdate = now;
 
-  getGridOptions() {
-    return {
-      min_columns: 2,
-      max_columns: 4,
-      min_rows: 3,
-      max_rows: 10
-    };
-  }
+                const newWeatherState = hass.states[this._weatherEntityId]?.state;
+                const newSunAzimuth = hass.states[this._sunEntityId]?.attributes?.azimuth;
 
-  _cleanup() {
-    this._stopDemo();
-    this._cleanupDemoEvents();
-    this._domCache = {};
-    this._demoListeners = [];
-  }
+                if (this._previousStates.weather === newWeatherState &&
+                    this._previousStates.azimuth === newSunAzimuth) {
+                    this._hass = hass;
+                    return;
+                }
+                this._previousStates.weather = newWeatherState;
+                this._previousStates.azimuth = newSunAzimuth;
+            }
 
-  _startDemo() {
-    this._stopDemo();
-    const loop = () => {
-      if (!this.isConnected) { this._stopDemo(); return; }
-      try { this._update(); } catch (e) { console.error('[MeteoCard] demo loop:', e); }
-      this._demoRequest = requestAnimationFrame(loop);
-    };
-    this._demoRequest = requestAnimationFrame(loop);
-  }
-
-  _stopDemo() {
-    if (this._demoRequest) { cancelAnimationFrame(this._demoRequest); this._demoRequest = undefined; }
-  }
-
-  _getEntity(configKey, defaultKey) {
-    return this.config?.[configKey] || MeteoCard.DEFAULTS[defaultKey];
-  }
-
-  _safe(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = String(text);
-    return div.innerHTML;
-  }
-
-_getCoords(azimuth, elevation) {
-    try {
-      const o = this.config.orbit || {};
-      const d = MeteoCard.DEFAULTS.orbit;
-
-      const rx = parseFloat(o.rx) || d.rx;
-      const ry = parseFloat(o.ry) || d.ry;
-      const cx = parseFloat(o.cx) || d.cx;
-      const cy = parseFloat(o.cy) || d.cy;
-      const parsedTilt = parseFloat(o.tilt);
-      const tilt = !isNaN(parsedTilt) ? parsedTilt : d.tilt;
-
-      const ha = (this.config.house_angle !== undefined) ? parseFloat(this.config.house_angle) : MeteoCard.DEFAULTS.house_angle;
-      let az = (this.config.invert_azimuth === true) ? (parseFloat(azimuth) + 180) % 360 : parseFloat(azimuth);
-      const rad = (az - ha) * Math.PI / 180;
-      const x0 = rx * Math.sin(rad);
-      const y0 = -ry * Math.cos(rad);
-      const tiltRad = tilt * Math.PI / 180;
-      const xRot = x0 * Math.cos(tiltRad) - y0 * Math.sin(tiltRad);
-      const yRot = x0 * Math.sin(tiltRad) + y0 * Math.cos(tiltRad);
-      return { left: cx + xRot, top: cy + yRot, elevation: parseFloat(elevation) || 0, azimuth: az };
-    } catch (e) { 
-      console.error('[MeteoCard] _getCoords:', e); 
-      return { left: 50, top: 50, elevation: 0, azimuth: 0 }; 
-    }
-  }
-
-  _update() {
-    try {
-      if (!this.content) {
-        console.warn('[MeteoCard] Content not initialized');
-        return;
-      }
-      
-      if (!this._hass && !this.config.demo_mode) {
-        if (!this._initialized) {
-          const emptyState = new MeteoState({
-            condition: 'sunny',
-            isNight: false,
-            sunPos: { left: 50, top: 50, elevation: 80, azimuth: 160 },
-            moonPos: { left: 50, top: 50, elevation: -25, azimuth: 340 }
-          });
-          this._renderAll(emptyState);
+            this._hass = hass;
+            this._update();
+        } catch (e) {
+            console.error('[MeteoCard] hass setter:', e);
         }
-        return;
-      }
-      
-      let rawData;
-      if (this.config.demo_mode) {
-        this._updateDemo();
-        rawData = this._demoData();
-      } else {
-        rawData = this._realData();
-        if (!rawData) {
-          if (!this._initialized) {
-            rawData = {
-              condition: 'sunny',
-              isNight: false,
-              sunPos: { left: 50, top: 50, elevation: 80, azimuth: 160 },
-              moonPos: { left: 50, top: 50, elevation: -25, azimuth: 340 },
-              windSpeed: 0
+    }
+
+    setConfig(config) {
+        try {
+            this.config = config;
+            this.layers = config.layers || ['sky', 'sun', 'moon', 'background', 'foreground'];
+
+            const orbitCfg = config.orbit || {};
+            const orbitDefaults = MeteoCard.DEFAULTS.orbit;
+            this._orbitConfig = {
+                rx: parseFloat(orbitCfg.rx) || orbitDefaults.rx,
+                ry: parseFloat(orbitCfg.ry) || orbitDefaults.ry,
+                cx: parseFloat(orbitCfg.cx) || orbitDefaults.cx,
+                cy: parseFloat(orbitCfg.cy) || orbitDefaults.cy,
+                tilt: !isNaN(parseFloat(orbitCfg.tilt)) ? parseFloat(orbitCfg.tilt) : orbitDefaults.tilt
             };
-          } else {
-            return;
-          }
+
+            this._houseAngle = (config.house_angle !== undefined) ? parseFloat(config.house_angle) : MeteoCard.DEFAULTS.house_angle;
+            this._invertAzimuth = config.invert_azimuth === true;
+
+            this._weatherEntityId = this._getEntity('weather', 'location');
+            this._sunEntityId = this._getEntity('sun_entity', 'sun_entity');
+            this._moonAzimuthEntityId = this._getEntity('moon_azimuth_entity', 'moon_azimuth_entity');
+            this._moonElevationEntityId = this._getEntity('moon_elevation_entity', 'moon_elevation_entity');
+            this._moonPhaseEntityId = this._getEntity('moon_phase_entity', 'moon_phase_entity');
+
+            if (!this.content) {
+                this.innerHTML = `<ha-card></ha-card>`;
+                this.content = this.querySelector('ha-card');
+                if (!this.content) {
+                    console.error('[MeteoCard] Failed to initialize content in setConfig');
+                    return;
+                }
+                this._injectStyles();
+            }
+
+            if (this.config.demo_mode) {
+                this._startDemo();
+            } else {
+                this._stopDemo();
+            }
+
+            if (!this._initialized) {
+                const defaultState = new MeteoState({
+                    condition: 'sunny',
+                    isNight: false,
+                    sunPos: {
+                        left: 50,
+                        top: 50,
+                        elevation: 80,
+                        azimuth: 160
+                    },
+                    moonPos: {
+                        left: 50,
+                        top: 50,
+                        elevation: -25,
+                        azimuth: 340
+                    },
+                    windSpeed: 0
+                });
+                this._renderAll(defaultState);
+                setTimeout(() => {
+                    const demoUI = this.content?.querySelector('.demo-ui-container');
+                    if (demoUI) demoUI.style.zIndex = '9999';
+                }, 0);
+            }
+        } catch (e) {
+            console.error('[MeteoCard] setConfig:', e);
         }
-      }
-
-      const state = new MeteoState(rawData);
-
-      if (!this._initialized || 
-          this._lastCondition !== state.condition || 
-          (this.config.demo_mode && state.isNight !== this._lastNight)) {
-        this._initialized = true;
-        this._lastCondition = state.condition;
-        this._lastNight = state.isNight;
-        this._renderAll(state);
-      } else {
-        this._updateDynamic(state);
-      }
-    } catch (e) { 
-      console.error('[MeteoCard] _update:', e); 
     }
-  }
 
-  _updateDemo() {
-    const now = Date.now();
-    if (!this._demoPaused) this._demoTimeOffset += (now - this._lastUpdateTimestamp);
-    this._lastUpdateTimestamp = now;
-    const cid = Math.floor(this._demoTimeOffset / 60000);
-    if (cid !== this._lastCycleId) {
-      this._lastCycleId = cid;
-      const avail = Object.keys(MeteoCard.DEFAULTS.conditions).filter(c => c !== 'default');
-      this._demoScenario = avail.sort(() => Math.random() - 0.5);
+    disconnectedCallback() {
+        this._cleanup();
     }
-  }
 
-  _demoData() {
-    try {
-      const prog = (this._demoTimeOffset % 60000) / 60000;
-      const cond = (this._demoForcedCondition !== 'auto') ? this._demoForcedCondition : this._demoScenario[Math.floor(prog * this._demoScenario.length)];
-      
-      const seed = Math.floor(prog * this._demoScenario.length);
-      const windSpeed = 15 + (Math.abs(Math.sin(seed)) * (80 - 15));
-
-      const hour = prog * 24;
-      const sunAz = (hour / 24) * 360;
-      const sunEl = 35 * Math.sin((hour - 6) * Math.PI / 12);
-      const sunPos = this._getCoords(sunAz, sunEl);
-      const moonPos = this._getCoords((sunAz + 180) % 360, -sunEl);
-      const phases = ['New Moon', 'Waxing Crescent', 'First Quarter', 'Waxing Gibbous', 'Full Moon', 'Waning Gibbous', 'Last Quarter', 'Waning Crescent'];
-      
-      const phaseProgress = (prog * 4) % 1; 
-      const moonPhaseDegrees = phaseProgress * 360;
-
-      return { 
-        condition: cond, 
-        isNight: sunPos.elevation <= 0, 
-        sunPos, 
-        moonPos, 
-        moonPhase: phases[Math.floor((prog * 4 * phases.length) % phases.length)], 
-        moonPhaseDegrees: moonPhaseDegrees,
-        rising: hour >= 6 && hour < 12, 
-        simulatedHour: hour, 
-        windSpeed: windSpeed 
-      };
-    } catch (e) { 
-      console.error('[MeteoCard] _demoData:', e); 
-      return null; 
+    getCardSize() {
+        return 6;
     }
-  }
 
-  _realData() {
-    try {
-      const we = this._getEntity('weather', 'location');
-      const se = this._getEntity('sun_entity', 'sun_entity');
-      const w = this._hass?.states?.[we];
-      const s = this._hass?.states?.[se];
-      if (!w || !s) return null;
-      
-      const cond = this._weatherMatrix(w.state);
-      const isNight = s.state === 'below_horizon';
-      const sunPos = this._getCoords(s.attributes?.azimuth || 0, s.attributes?.elevation || 0);
-      const hour = new Date().getHours() + (new Date().getMinutes() / 60);
-      
-      const mae = this._getEntity('moon_azimuth_entity', 'moon_azimuth_entity');
-      const mee = this._getEntity('moon_elevation_entity', 'moon_elevation_entity');
-      const mpe = this._getEntity('moon_phase_entity', 'moon_phase_entity');
-      
-      const ma = this._hass.states?.[mae];
-      const me = this._hass.states?.[mee];
-      const mp = this._hass.states?.[mpe];
-      
-      const moonPos = (ma && me) ? this._getCoords(parseFloat(ma.state) || 0, parseFloat(me.state) || 0) : this._getCoords((s.attributes?.azimuth || 0 + 180) % 360, -(s.attributes?.elevation || 0));
-      const windSpeed = parseFloat(w.attributes?.wind_speed) || 0;
+    getGridOptions() {
+        return {
+            min_columns: 2,
+            max_columns: 4,
+            min_rows: 3,
+            max_rows: 10
+        };
+    }
 
-      return { condition: cond, isNight, sunPos, moonPos, moonPhase: mp?.state || 'Full Moon', rising: s.attributes?.rising || false, simulatedHour: hour, windSpeed };
-    } catch (e) { console.error('[MeteoCard] _realData:', e); return null; }
-  }
+    _cleanup() {
+        this._stopDemo();
+        this._cleanupDemoEvents();
+        this._domCache = {};
+        this._demoListeners = [];
+    }
 
-  _updateDynamic(state) {
-    try {
-      const conf = MeteoCard.DEFAULTS;
-      const { isNight, sunPos, moonPos, moonPhase, moonPhaseDegrees, rising, condition, simulatedHour: hour, windSpeed } = state;
+    _startDemo() {
+        this._stopDemo();
+        const loop = () => {
+            if (!this.isConnected) {
+                this._stopDemo();
+                return;
+            }
+            try {
+                this._update();
+            } catch (e) {
+                console.error('[MeteoCard] demo loop:', e);
+            }
+            this._demoRequest = requestAnimationFrame(loop);
+        };
+        this._demoRequest = requestAnimationFrame(loop);
+    }
 
-      const sky = this._domCache.skyBg || this.content?.querySelector('.sky-bg');
-      if (sky) {
-        const fPos = isNight ? moonPos : sunPos;
-        const cond = conf.conditions[condition] || conf.conditions.default;
-        const colors = (!isNight && sunPos.elevation < 12 && sunPos.elevation > -0.5) ? (rising ? conf.colors.sunrise : conf.colors.sunset) : (isNight ? conf.colors.night[cond.night_sky || 'normal'] : conf.colors.day[cond.day_sky || 'normal']);
-        sky.style.background = `radial-gradient(circle at ${fPos.left}% ${fPos.top}%, ${colors})`;
-      }
-
-      const sun = this._domCache.sunContainer || this.content?.querySelector('.sun-container');
-      if (sun) {
-        sun.style.display = sunPos.elevation >= 0 ? 'block' : 'none';
-        sun.style.left = `${sunPos.left}%`;
-        sun.style.top = `${sunPos.top}%`;
-        if (sunPos.elevation >= 0 && !sun.innerHTML) sun.innerHTML = this._sunSVG();
-        if (sunPos.elevation < 0) sun.innerHTML = '';
-      }
-
-      const moon = this._domCache.moonContainer || this.content?.querySelector('.moon-container');
-      if (moon) {
-        moon.style.display = moonPos.elevation >= 0 ? 'block' : 'none';
-        moon.style.left = `${moonPos.left}%`;
-        moon.style.top = `${moonPos.top}%`;
-        if (moonPos.elevation >= 0) {
-          moon.innerHTML = this._moonSVG(moonPhase, !isNight, moonPhaseDegrees);
-        } else {
-          moon.innerHTML = '';
+    _stopDemo() {
+        if (this._demoRequest) {
+            cancelAnimationFrame(this._demoRequest);
+            this._demoRequest = undefined;
         }
-      }
+    }
 
-      const info = this._domCache.infoBox || this.content?.querySelector('.demo-data');
-      if (info && this.config.demo_mode) {
-        const h = Math.floor(hour), m = Math.floor((hour % 1) * 60);
-        info.innerHTML = `
-          <div class="line time-row"><b>Time:</b> ${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')} | <b>Weather:</b> ${this._safe(condition)}</div>
+    _getEntity(configKey, defaultKey) {
+        return this.config?.[configKey] || MeteoCard.DEFAULTS[defaultKey];
+    }
+
+    _safe(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = String(text);
+        return div.innerHTML;
+    }
+
+    _getCoords(azimuth, elevation) {
+        try {
+            const o = this._orbitConfig;
+
+            let az = this._invertAzimuth ? (parseFloat(azimuth) + 180) % 360 : parseFloat(azimuth);
+            const rad = (az - this._houseAngle) * Math.PI / 180;
+            const x0 = o.rx * Math.sin(rad);
+            const y0 = -o.ry * Math.cos(rad);
+            const tiltRad = o.tilt * Math.PI / 180;
+            const xRot = x0 * Math.cos(tiltRad) - y0 * Math.sin(tiltRad);
+            const yRot = x0 * Math.sin(tiltRad) + y0 * Math.cos(tiltRad);
+
+            return {
+                left: o.cx + xRot,
+                top: o.cy + yRot,
+                elevation: parseFloat(elevation) || 0,
+                azimuth: az
+            };
+        } catch (e) {
+            console.error('[MeteoCard] _getCoords:', e);
+            return {
+                left: 50,
+                top: 50,
+                elevation: 0,
+                azimuth: 0
+            };
+        }
+    }
+
+    _update() {
+        try {
+            if (!this.content) {
+                console.warn('[MeteoCard] Content not initialized');
+                return;
+            }
+
+            if (!this._hass && !this.config.demo_mode) {
+                if (!this._initialized) {
+                    const emptyState = new MeteoState({
+                        condition: 'sunny',
+                        isNight: false,
+                        sunPos: {
+                            left: 50,
+                            top: 50,
+                            elevation: 80,
+                            azimuth: 160
+                        },
+                        moonPos: {
+                            left: 50,
+                            top: 50,
+                            elevation: -25,
+                            azimuth: 340
+                        }
+                    });
+                    this._renderAll(emptyState);
+                }
+                return;
+            }
+
+            let rawData;
+            if (this.config.demo_mode) {
+                this._updateDemo();
+                rawData = this._demoData();
+            } else {
+                rawData = this._realData();
+                if (!rawData) {
+                    if (!this._initialized) {
+                        rawData = {
+                            condition: 'sunny',
+                            isNight: false,
+                            sunPos: {
+                                left: 50,
+                                top: 50,
+                                elevation: 80,
+                                azimuth: 160
+                            },
+                            moonPos: {
+                                left: 50,
+                                top: 50,
+                                elevation: -25,
+                                azimuth: 340
+                            },
+                            windSpeed: 0
+                        };
+                    } else {
+                        return;
+                    }
+                }
+            }
+
+            const state = new MeteoState(rawData);
+
+            if (!this._initialized ||
+                this._lastCondition !== state.condition ||
+                (this.config.demo_mode && state.isNight !== this._lastNight)) {
+                this._initialized = true;
+                this._lastCondition = state.condition;
+                this._lastNight = state.isNight;
+                this._renderAll(state);
+            } else {
+                this._updateDynamic(state);
+            }
+        } catch (e) {
+            console.error('[MeteoCard] _update:', e);
+        }
+    }
+
+    _updateDemo() {
+        const now = Date.now();
+        if (!this._demoPaused) this._demoTimeOffset += (now - this._lastUpdateTimestamp);
+        this._lastUpdateTimestamp = now;
+        const cid = Math.floor(this._demoTimeOffset / 60000);
+        if (cid !== this._lastCycleId) {
+            this._lastCycleId = cid;
+            const avail = Object.keys(MeteoCard.DEFAULTS.conditions).filter(c => c !== 'default');
+            this._demoScenario = avail.sort(() => Math.random() - 0.5);
+        }
+    }
+
+    _demoData() {
+        try {
+            if (!this._moonPhases) {
+                this._moonPhases = ['New Moon', 'Waxing Crescent', 'First Quarter', 'Waxing Gibbous', 'Full Moon', 'Waning Gibbous', 'Last Quarter', 'Waning Crescent'];
+            }
+
+            const prog = (this._demoTimeOffset % 60000) / 60000;
+            const cond = (this._demoForcedCondition !== 'auto') ? this._demoForcedCondition : this._demoScenario[Math.floor(prog * this._demoScenario.length)];
+
+            const seed = Math.floor(prog * this._demoScenario.length);
+            const windSpeed = 15 + (Math.abs(Math.sin(seed)) * (80 - 15));
+
+            const hour = prog * 24;
+            const sunAz = (hour / 24) * 360;
+            const sunEl = 35 * Math.sin((hour - 6) * Math.PI / 12);
+            const sunPos = this._getCoords(sunAz, sunEl);
+            const moonPos = this._getCoords((sunAz + 180) % 360, -sunEl);
+
+            const phaseProgress = (prog * 4) % 1;
+            const moonPhaseDegrees = phaseProgress * 360;
+            const phaseIndex = Math.floor((prog * 4 * this._moonPhases.length) % this._moonPhases.length);
+
+            return {
+                condition: cond,
+                isNight: sunPos.elevation <= 0,
+                sunPos,
+                moonPos,
+                moonPhase: this._moonPhases[phaseIndex],
+                moonPhaseDegrees: moonPhaseDegrees,
+                rising: hour >= 6 && hour < 12,
+                simulatedHour: hour,
+                windSpeed: windSpeed
+            };
+        } catch (e) {
+            console.error('[MeteoCard] _demoData:', e);
+            return null;
+        }
+    }
+
+    _realData() {
+        try {
+            const w = this._hass?.states?.[this._weatherEntityId];
+            const s = this._hass?.states?.[this._sunEntityId];
+            if (!w || !s) return null;
+
+            const cond = this._weatherMatrix(w.state);
+            const isNight = s.state === 'below_horizon';
+            const sunPos = this._getCoords(s.attributes?.azimuth || 0, s.attributes?.elevation || 0);
+            const hour = new Date().getHours() + (new Date().getMinutes() / 60);
+
+            const ma = this._hass.states?.[this._moonAzimuthEntityId];
+            const me = this._hass.states?.[this._moonElevationEntityId];
+            const mp = this._hass.states?.[this._moonPhaseEntityId];
+
+            const moonPos = (ma && me) ? this._getCoords(parseFloat(ma.state) || 0, parseFloat(me.state) || 0) : this._getCoords((s.attributes?.azimuth || 0 + 180) % 360, -(s.attributes?.elevation || 0));
+            const windSpeed = parseFloat(w.attributes?.wind_speed) || 0;
+
+            return {
+                condition: cond,
+                isNight,
+                sunPos,
+                moonPos,
+                moonPhase: mp?.state || 'Full Moon',
+                rising: s.attributes?.rising || false,
+                simulatedHour: hour,
+                windSpeed
+            };
+        } catch (e) {
+            console.error('[MeteoCard] _realData:', e);
+            return null;
+        }
+    }
+
+    _getDemoUIOptions() {
+        if (this._cachedDemoOptions) return this._cachedDemoOptions;
+
+        const cond = MeteoCard.DEFAULTS.conditions;
+        let opts = `<option value="auto">🔄 Auto</option>`;
+        Object.keys(cond).filter(c => c !== 'default').forEach(c => {
+            opts += `<option value="${c}">${c.toUpperCase()}</option>`;
+        });
+
+        this._cachedDemoOptions = opts;
+        return opts;
+    }
+
+    _updateDynamic(state) {
+        try {
+            const conf = MeteoCard.DEFAULTS;
+            const {
+                isNight,
+                sunPos,
+                moonPos,
+                moonPhase,
+                moonPhaseDegrees,
+                rising,
+                condition,
+                simulatedHour: hour,
+                windSpeed
+            } = state;
+
+            const sky = this._domCache.skyBg || this.content?.querySelector('.sky-bg');
+            if (sky) {
+                const fPos = isNight ? moonPos : sunPos;
+                const cond = conf.conditions[condition] || conf.conditions.default;
+                const colors = (!isNight && sunPos.elevation < 12 && sunPos.elevation > -0.5) ? (rising ? conf.colors.sunrise : conf.colors.sunset) : (isNight ? conf.colors.night[cond.night_sky || 'normal'] : conf.colors.day[cond.day_sky || 'normal']);
+                sky.style.background = `radial-gradient(circle at ${fPos.left}% ${fPos.top}%, ${colors})`;
+            }
+
+            const sun = this._domCache.sunContainer || this.content?.querySelector('.sun-container');
+            if (sun) {
+                sun.style.display = sunPos.elevation >= 0 ? 'block' : 'none';
+                sun.style.left = `${sunPos.left}%`;
+                sun.style.top = `${sunPos.top}%`;
+                if (sunPos.elevation >= 0 && !sun.innerHTML) sun.innerHTML = this._sunSVG();
+                if (sunPos.elevation < 0) sun.innerHTML = '';
+            }
+
+            const moon = this._domCache.moonContainer || this.content?.querySelector('.moon-container');
+            if (moon) {
+                moon.style.display = moonPos.elevation >= 0 ? 'block' : 'none';
+                moon.style.left = `${moonPos.left}%`;
+                moon.style.top = `${moonPos.top}%`;
+                if (moonPos.elevation >= 0) {
+                    moon.innerHTML = this._moonSVG(moonPhase, !isNight, moonPhaseDegrees);
+                } else {
+                    moon.innerHTML = '';
+                }
+            }
+
+            const info = this._domCache.infoBox || this.content?.querySelector('.demo-data');
+            if (info && this.config.demo_mode) {
+                const timeStr = this._formatTime(hour);
+                info.innerHTML = `
+          <div class="line time-row"><b>Time:</b> ${timeStr} | <b>Weather:</b> ${this._safe(condition)}</div>
           <div class="line"><b>Wind Speed:</b> ${windSpeed.toFixed(1)} km/h</div>
           <div class="line"><b>Sun:</b> Alt: ${sunPos.elevation.toFixed(1)}° | Az: ${sunPos.azimuth.toFixed(1)}°</div>
           <div class="line"><b>Moon:</b> Alt: ${moonPos.elevation.toFixed(1)}° | Az: ${moonPos.azimuth.toFixed(1)}°</div>
           <div class="line"><b>Phase:</b> ${this._safe(moonPhase)} | <b>Rot:</b> ${Math.floor(moonPhaseDegrees || 0)}°</div>
         `;
-      }
-    } catch (e) { console.error('[MeteoCard] _updateDynamic:', e); }
-  }
-
-  _renderAll(state) {
-    try {
-      const { condition, isNight, sunPos, moonPos, moonPhase, rising, windSpeed } = state;
-      const css = { content: '' };
-      const old = this.content?.querySelector('.demo-ui-container');
-      if (old) old.remove();
-
-      let html = `<svg style="width:0;height:0;position:absolute;"><filter id="cloud-distort"><feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="3" seed="5"/><feDisplacementMap in="SourceGraphic" scale="35" /></filter></svg>`;
-      if (this.config.demo_mode) html += this._demoUI();
-      
-      this.layers.forEach(l => { 
-        html += `<div class="layer-container" style="z-index:${this._zIdx(l)};">${this._renderLayer(l, condition, isNight, sunPos, moonPos, moonPhase, rising, css, windSpeed)}</div>`;
-      });
-
-      this.content.innerHTML = html;
-      this._cacheDOM();
-      if (this.config.demo_mode) this._setupEvents();
-      
-      if (!this.dynamicStyleSheet) { 
-        this.dynamicStyleSheet = document.createElement('style'); 
-        this.appendChild(this.dynamicStyleSheet); 
-      }
-      this.dynamicStyleSheet.textContent = css.content;
-      
-      this._updateDynamic(state);
-    } catch (e) { console.error('[MeteoCard] _renderAll:', e); }
-  }
-
-  _cacheDOM() {
-    this._domCache = { 
-        skyBg: this.content?.querySelector('.sky-bg'), 
-        sunContainer: this.content?.querySelector('.sun-container'), 
-        moonContainer: this.content?.querySelector('.moon-container'), 
-        infoBox: this.content?.querySelector('.demo-data') 
-    };
-  }
-
-  _demoUI() {
-    try {
-      const cond = MeteoCard.DEFAULTS.conditions;
-      let opts = `<option value="auto">🔄 Auto</option>`;
-      Object.keys(cond).filter(c => c !== 'default').forEach(c => { opts += `<option value="${c}">${c.toUpperCase()}</option>`; });
-      return `<div class="demo-ui-container"><div class="demo-top-bar"><select class="demo-select">${opts}</select><button class="demo-btn-play">${this._demoPaused ? '▶️' : '⏸️'}</button></div><div class="demo-data"></div></div>`;
-    } catch (e) { console.error('[MeteoCard] _demoUI:', e); return ''; }
-  }
-
-  _cleanupEvents() {
-    this._demoListeners.forEach(({ el, ev, fn }) => { if (el) el.removeEventListener(ev, fn); });
-    this._demoListeners = [];
-  }
-
-  _cleanupDemoEvents() { this._cleanupEvents(); }
-
-  _setupEvents() {
-    try {
-      this._cleanupEvents();
-      const sel = this.content?.querySelector('.demo-select');
-      if (sel) {
-        sel.value = this._demoForcedCondition;
-        const fn = (e) => { this._demoForcedCondition = e.target.value; this._initialized = false; this._update(); };
-        sel.addEventListener('change', fn);
-        this._demoListeners.push({ el: sel, ev: 'change', fn });
-      }
-      const btn = this.content?.querySelector('.demo-btn-play');
-      if (btn) {
-        const fn = () => { this._demoPaused = !this._demoPaused; btn.textContent = this._demoPaused ? '▶️' : '⏸️'; };
-        btn.addEventListener('click', fn);
-        this._demoListeners.push({ el: btn, ev: 'click', fn });
-      }
-    } catch (e) { console.error('[MeteoCard] _setupEvents:', e); }
-  }
-
-  _renderLayer(layer, condition, isNight, sunPos, moonPos, moonPhase, rising, css, windSpeed) {
-    try {
-      const conf = MeteoCard.DEFAULTS;
-      const cond = conf.conditions[condition] || conf.conditions.default;
-      if (layer === 'sky') {
-        return `<div class="sky-bg" style="position:absolute; inset:0; transition: background 3s ease-in-out;"></div>` + 
-               (isNight ? `<div style="position:absolute; inset:0;">${this._stars(100, css)}${this._shootings(2, css)}</div>` : '');
-      }
-      if (layer === 'sun' || layer === 'moon') {
-        return `<div class="${layer}-container" style="position:absolute; transform:translate(-50%, -50%); pointer-events:none; display:none; width:900px; height:900px;"></div>`;
-      }
-      let h = '';
-      const bg = ['partlycloudy', 'sunny', 'clear-night'].includes(condition);
-      if (layer === 'background') return (bg && cond.clouds !== 'none') ? this._clouds(cond.clouds, css, isNight, windSpeed) : '';
-      if (layer === 'foreground') {
-        if (cond.lightning) h += `<div class="lightning"></div>`;
-        if (!bg && cond.clouds !== 'none') h += this._clouds(cond.clouds, css, isNight, windSpeed);
-        if (cond.drops) {
-          const dropsCount = this.config.rain_intensity?.[cond.drops] || conf.rain_intensity[cond.drops] || 0;
-          h += this._rain(dropsCount, css);
+            }
+        } catch (e) {
+            console.error('[MeteoCard] _updateDynamic:', e);
         }
-        if (cond.flakes) {
-          const flakesCount = this.config.snow_intensity?.[cond.flakes] || conf.snow_intensity[cond.flakes] || 0;
-          h += this._snow(flakesCount, css);
+    }
+
+    _injectKeyframesForCondition(condition, isNight) {
+        if (this._loadedKeyframes === condition) return;
+        this._loadedKeyframes = condition;
+
+        const keyframes = {
+            base: `
+        @keyframes to-right { to { transform:translateX(130vw); } }
+        @keyframes flash { 0%,90%,94%,100%{opacity:0;} 92%{opacity:0.4;} }
+      `,
+            star: `
+        @keyframes star { 0%,100%{opacity:1;} 50%{opacity:0.2;} }
+      `,
+            shot: `
+        @keyframes shot { 0%{transform:rotate(45deg) translateX(-200px);opacity:0;} 1%{opacity:1;} 10%{transform:rotate(45deg) translateX(1200px);opacity:0;} 100%{opacity:0;} }
+      `,
+            rain: `
+        @keyframes rain-fall { to { transform:translateY(110vh) skewX(-15deg); } }
+      `,
+            snow: `
+        @keyframes snow-fall { 0% { transform: translateY(-10vh); } 100% { transform: translateY(110vh); } }
+        @keyframes snow-sway { 0% { margin-left: calc(var(--sway) * -1); } 100% { margin-left: var(--sway); } }
+      `,
+            fog: `
+        @keyframes fog-boil { 0% { transform: scale(1) translateY(0); opacity: 0.15; } 50% { opacity: 0.85; } 100% { transform: scale(1.15) translateY(-20px); opacity: 0.15; } }
+      `
+        };
+
+        let requiredKeyframes = keyframes.base;
+        const conf = MeteoCard.DEFAULTS.conditions[condition] || MeteoCard.DEFAULTS.conditions.default;
+
+        if (isNight && conf.stars) {
+            requiredKeyframes += keyframes.star + keyframes.shot;
         }
-        if (cond.fog) h += this._fog(5, css); return h; }
-      return '';
-    } catch (e) { console.error('[MeteoCard] _renderLayer:', e); return ''; }
-  }
+        if (conf.clouds && conf.clouds !== 'none') {
+            requiredKeyframes += keyframes.base;
+        }
+        if (conf.drops) {
+            requiredKeyframes += keyframes.rain;
+        }
+        if (conf.flakes) {
+            requiredKeyframes += keyframes.snow;
+        }
+        if (conf.fog) {
+            requiredKeyframes += keyframes.fog;
+        }
+        if (conf.lightning) {
+            requiredKeyframes += keyframes.base;
+        }
 
-  _sunSVG() {
-    try {
-      const def = MeteoCard.DEFAULTS.sun;
-      const s = this.config.sun || {};
-      const col = s.colors || def.colors;
-      return `<svg viewBox="0 0 300 300" style="width:100%; height:100%; overflow:visible;"><defs><radialGradient id="sunAura"><stop offset="0%" stop-color="${col.aura}" stop-opacity="${s.aura_opacity || def.aura_opacity}"/><stop offset="100%" stop-color="#FF6600" stop-opacity="0"/></radialGradient><radialGradient id="sunHalo"><stop offset="0%" stop-color="${col.halo}" stop-opacity="${s.halo_opacity || def.halo_opacity}"/><stop offset="100%" stop-color="${col.aura}" stop-opacity="0"/></radialGradient></defs><circle cx="150" cy="150" r="${s.aura_radius || def.aura_radius}" fill="url(#sunAura)"/><circle cx="150" cy="150" r="${s.halo_radius || def.halo_radius}" fill="url(#sunHalo)"/><circle cx="150" cy="150" r="${s.disc_radius || def.disc_radius}" fill="${col.disc}" style="filter:blur(1px);"/></svg>`;
-    } catch (e) { console.error('[MeteoCard] _sunSVG:', e); return ''; }
-  }
+        if (!this._keyframesSheet) {
+            this._keyframesSheet = document.createElement('style');
+            this._keyframesSheet.id = 'meteo-keyframes';
+            this.appendChild(this._keyframesSheet);
+        }
 
-  _moonSVG(phase, isDaytime, moonPhaseDegrees = 0) {
-    try {
-      const def = MeteoCard.DEFAULTS.moon;
-      const m = this.config.moon || {};
-      const col = m.colors || def.colors;
-      const r = m.disc_radius || def.disc_radius;
-      const pl = (phase || '').toLowerCase();
-      let p = pl.includes('new') ? 0 : pl.includes('crescent') ? 0.22 : pl.includes('quarter') ? 0.5 : pl.includes('gibbous') ? 0.78 : 1;
-      const iw = pl.includes('waning') || pl.includes('last');
-      const hr = Math.abs(Math.cos(p * Math.PI)) * r;
-      const bo = isDaytime ? 0.4 : 1.0;
-      const mid = `moon-mask-${Math.random().toString(36).substr(2, 5)}`;
-      return `<svg viewBox="0 0 300 300" style="width:100%; height:100%; overflow:visible;"><defs><filter id="mtx" x="-100%" y="-100%" width="300%" height="300%"><feTurbulence type="fractalNoise" baseFrequency="0.5" numOctaves="2" result="noise"/><feDiffuseLighting lighting-color="#FFFFFF" surfaceScale="1" result="diffuse"><feDistantLight azimuth="45" elevation="45"/></feDiffuseLighting><feComposite in="diffuse" in2="SourceGraphic" operator="in"/></filter><mask id="${mid}"><g transform="translate(150,150) rotate(${moonPhaseDegrees})"><path d="M 0,${-r} A ${r},${r} 0 1,${iw ? 0 : 1} 0,${r} A ${hr},${r} 0 0,${p <= 0.5 ? (iw ? 1 : 0) : (iw ? 0 : 1)} 0,${-r}" fill="white" filter="blur(0.8px)"/></g></mask><radialGradient id="ma"><stop offset="0%" stop-color="${col.aura}" stop-opacity="${(m.aura_opacity || def.aura_opacity) * p * bo}"/><stop offset="100%" stop-color="${col.aura}" stop-opacity="0"/></radialGradient><radialGradient id="m3d" cx="40%" cy="40%" r="50%"><stop offset="0%" stop-color="${col.disc_light}"/><stop offset="100%" stop-color="${col.disc_dark}"/></radialGradient></defs><circle cx="150" cy="150" r="${m.aura_radius || def.aura_radius}" fill="url(#ma)"/><circle cx="150" cy="150" r="${m.halo_radius || def.halo_radius}" fill="#FFFFFF" opacity="${(m.halo_opacity || def.halo_opacity) * p * bo}" style="filter:blur(5px);"/><g mask="url(#${mid})" style="opacity:${bo}"><g transform="translate(150,150) rotate(${moonPhaseDegrees})"><circle cx="0" cy="0" r="${r + 0.5}" fill="url(#m3d)" /><circle cx="0" cy="0" r="${r + 0.5}" fill="white" filter="url(#mtx)" opacity="0.3" style="mix-blend-mode: soft-light;"/></g></g></svg>`;
-    } catch (e) { console.error('[MeteoCard] _moonSVG:', e); return ''; }
-  }
-
-  _clouds(type, css, isNight, windSpeed = 25) {
-    try {
-      const [nc, pc, gr] = MeteoCard.DEFAULTS.clouds[type] || MeteoCard.DEFAULTS.clouds.low;
-      const bc = 255 - (gr * 25);
-      let h = '';
-      const baseDuration = (20 / (windSpeed + 1)) * 60;
-
-      for (let i = 0; i < nc; i++) {
-        const id = `cl-${this.cloudCounter++}`;
-        const bs = 60 + Math.random() * 50;
-        const randomFactor = (Math.floor(Math.random() * (140 - 60 + 1)) + 60) / 100;
-        const dur = baseDuration * randomFactor;
-        
-        const tp = Math.random() * 95;
-        const cw = bs * (2.5 + (pc / 4));
-        css.content += `.${id} { position: absolute; top: ${tp}%; left: -${cw * 2}px; width: ${cw}px; height: ${bs * 2.2}px; animation: to-right ${dur}s linear infinite; animation-delay: -${Math.random()*dur}s; filter: url(#cloud-distort) blur(5px); opacity: ${type === 'heavy' ? 0.9 : 0.7}; mix-blend-mode: ${isNight ? 'normal' : 'screen'}; z-index: ${Math.floor(tp)}; } .${id} .puff { position: absolute; border-radius: 50%; background: radial-gradient(circle at 35% 30%, rgba(${Math.min(255, bc+45)}, ${Math.min(255, bc+45)}, ${Math.min(255, bc+45)}, 1) 0%, rgba(${bc}, ${bc}, ${bc+10}, 0.8) 50%, rgba(${Math.max(0, bc-55)}, ${Math.max(0, bc-55)}, ${Math.max(0, bc-55+20)}, 0.4) 100%); filter: blur(10px); }`;
-        let puffs = '';
-        for (let j = 0; j < pc; j++) puffs += `<div class="puff" style="width:${bs*(1.1+Math.random()*0.9)}px; height:${bs*(1.1+Math.random()*0.9)*0.9}px; left:${(j*(85/pc))+(Math.random()*10)}%; top:${(Math.random()*(bs*0.4))-(bs*0.2)}px;"></div>`;
-        h += `<div class="${id}">${puffs}</div>`;
-      }
-      return h;
-    } catch (e) { console.error('[MeteoCard] _clouds:', e); return ''; }
-  }
-
-  _stars(n, css) {
-    let h = '';
-    for (let i = 0; i < n; i++) {
-      const id = `st-${i}`;
-      css.content += `.${id}{position:absolute;width:1.5px;height:1.5px;background:#FFFFFF;border-radius:50%;top:${Math.random()*100}%;left:${Math.random()*100}%;animation:star ${2+Math.random()*3}s infinite;z-index:1;}`;
-      h += `<div class="${id}"></div>`;
+        this._keyframesSheet.textContent = requiredKeyframes;
     }
-    return h;
-  }
 
-  _shootings(n, css) {
-    let h = '';
-    for (let i = 0; i < n; i++) {
-      const id = `sh-${i}`;
-      css.content += `.${id}{position:absolute;width:100px;height:1px;background:linear-gradient(to right,transparent,white);top:${Math.random()*50}%;left:${Math.random()*100}%;transform:rotate(45deg) translateX(-200px);opacity:0;animation:shot 15s infinite;animation-delay:${Math.random()*15}s;z-index:2;}`;
-      h += `<div class="${id}"></div>`;
+    _renderAll(state) {
+        try {
+            const {
+                condition,
+                isNight,
+                sunPos,
+                moonPos,
+                moonPhase,
+                rising,
+                windSpeed
+            } = state;
+            const css = {
+                content: ''
+            };
+            const old = this.content?.querySelector('.demo-ui-container');
+            if (old) old.remove();
+
+            this._injectKeyframesForCondition(condition, isNight);
+
+            const conf = MeteoCard.DEFAULTS;
+            const cond = conf.conditions[condition] || conf.conditions.default;
+
+            let html = `<svg style="width:0;height:0;position:absolute;"><filter id="cloud-distort"><feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="3" seed="5"/><feDisplacementMap in="SourceGraphic" scale="35" /></filter></svg>`;
+            if (this.config.demo_mode) html += this._demoUI();
+
+            this.layers.forEach(l => {
+                html += `<div class="layer-container" style="z-index:${this._zIdx(l)};">${this._renderLayer(l, condition, isNight, sunPos, moonPos, moonPhase, rising, css, windSpeed, conf, cond)}</div>`;
+            });
+
+            this.content.innerHTML = html;
+            this._cacheDOM();
+            if (this.config.demo_mode) this._setupEvents();
+
+            if (!this.dynamicStyleSheet) {
+                this.dynamicStyleSheet = document.createElement('style');
+                this.appendChild(this.dynamicStyleSheet);
+            }
+            this.dynamicStyleSheet.textContent = css.content;
+
+            this._updateDynamic(state);
+        } catch (e) {
+            console.error('[MeteoCard] _renderAll:', e);
+        }
     }
-    return h;
-  }
 
-  _rain(n, css) {
-    let h = '';
-    for (let i = 0; i < n; i++) {
-      const id = `ra-${i}`;
-      css.content += `.${id}{position:absolute;width:1px;height:40px;background:linear-gradient(to bottom,transparent,rgba(255,255,255,0.4));left:${Math.random()*100}%;top:-50px;animation:rain-fall 0.6s linear infinite;animation-delay:-${Math.random()*2}s;z-index:500;}`;
-      h += `<div class="${id}"></div>`;
+    _cacheDOM() {
+        this._domCache = {
+            skyBg: this.content?.querySelector('.sky-bg'),
+            sunContainer: this.content?.querySelector('.sun-container'),
+            moonContainer: this.content?.querySelector('.moon-container'),
+            infoBox: this.content?.querySelector('.demo-data')
+        };
     }
-    return h;
-  }
 
-  _snow(n, css) {
-    let h = '';
-    for (let i = 0; i < n; i++) {
-      const id = `sn-${i}`;
-      const sw = 15 + Math.random() * 30;
-      css.content += `.${id}{position:absolute;width:${2+Math.random()*4}px;height:${2+Math.random()*4}px;background:#FFFFFF;border-radius:50%;left:${Math.random()*100}%;top:-10px;opacity:${0.4+Math.random()*0.6};filter:blur(1px);animation:snow-fall ${7+Math.random()*5}s linear infinite, snow-sway ${2+Math.random()*2}s ease-in-out infinite alternate;animation-delay:-${Math.random()*10}s;--sway:${sw}px;z-index:500;}`;
-      h += `<div class="${id}"></div>`;
+    _demoUI() {
+        try {
+            const opts = this._getDemoUIOptions();
+            return `<div class="demo-ui-container"><div class="demo-top-bar"><select class="demo-select">${opts}</select><button class="demo-btn-play">${this._demoPaused ? '▶️' : '⏸️'}</button></div><div class="demo-data"></div></div>`;
+        } catch (e) {
+            console.error('[MeteoCard] _demoUI:', e);
+            return '';
+        }
     }
-    return h;
-  }
 
-  _fog(n, css) {
-    let h = '';
-    for (let i = 0; i < n; i++) {
-      const id = `fog-dense-${i}`;
-      const dur = 8 + Math.random() * 8;
-      const top = 30 + (i * 10);
-      css.content += `
-        .${id} { 
-          position: absolute; 
-          width: 150%; height: 180px; 
-          left: -25%; top: ${top}%;
-          background: linear-gradient(to bottom, transparent 0%, rgba(255, 255, 255, 0.25) 35%, rgba(255, 255, 255, 0.45) 50%, rgba(255, 255, 255, 0.25) 65%, transparent 100%);
-          animation: fog-boil ${dur}s ease-in-out infinite alternate; 
-          animation-delay: -${Math.random() * dur}s; 
-          z-index: ${600 + i}; 
-          filter: blur(15px);
-          will-change: transform, opacity;
-        }`;
-      h += `<div class="${id}"></div>`;
+    _cleanupEvents() {
+        this._demoListeners.forEach(({
+            el,
+            ev,
+            fn
+        }) => {
+            if (el) el.removeEventListener(ev, fn);
+        });
+        this._demoListeners = [];
     }
-    return h;
-  }
 
-  _zIdx(l) { return { 'sky': 1, 'sun': 2, 'moon': 2, 'background': 10, 'foreground': 500 }[l] || 2; }
+    _cleanupDemoEvents() {
+        this._cleanupEvents();
+    }
 
-  _weatherMatrix(state) {
-    const s = (state || '').toLowerCase();
-    if (s.includes('lightning') || s.includes('storm')) return 'lightning-rainy';
-    if (s.includes('pouring') || s.includes('heavy')) return 'pouring';
-    if (s.includes('rain')) return 'rainy';
-    if (s.includes('snow')) return 'snowy';
-    if (s.includes('partly') || s.includes('broken')) return 'partlycloudy';
-    if (s.includes('cloud')) return 'cloudy';
-    if (s.includes('fog') || s.includes('mist')) return 'fog';
-    if (s.includes('clear')) return 'clear-night';
-    return 'sunny';
-  }
+    _setupEvents() {
+        try {
+            this._cleanupEvents();
+            const sel = this.content?.querySelector('.demo-select');
+            if (sel) {
+                sel.value = this._demoForcedCondition;
+                const fn = (e) => {
+                    this._demoForcedCondition = e.target.value;
+                    this._initialized = false;
+                    this._update();
+                };
+                sel.addEventListener('change', fn);
+                this._demoListeners.push({
+                    el: sel,
+                    ev: 'change',
+                    fn
+                });
+            }
+            const btn = this.content?.querySelector('.demo-btn-play');
+            if (btn) {
+                const fn = () => {
+                    this._demoPaused = !this._demoPaused;
+                    btn.textContent = this._demoPaused ? '▶️' : '⏸️';
+                };
+                btn.addEventListener('click', fn);
+                this._demoListeners.push({
+                    el: btn,
+                    ev: 'click',
+                    fn
+                });
+            }
+        } catch (e) {
+            console.error('[MeteoCard] _setupEvents:', e);
+        }
+    }
 
-  _injectStyles() {
-    const s = document.createElement('style');
-    s.textContent = `
+    _renderLayer(layer, condition, isNight, sunPos, moonPos, moonPhase, rising, css, windSpeed, conf, cond) {
+        try {
+            if (layer === 'sky') {
+                return `<div class="sky-bg" style="position:absolute; inset:0; transition: background 3s ease-in-out;"></div>` +
+                    (isNight ? `<div style="position:absolute; inset:0;">${this._stars(100, css)}${this._shootings(2, css)}</div>` : '');
+            }
+            if (layer === 'sun' || layer === 'moon') {
+                return `<div class="${layer}-container" style="position:absolute; transform:translate(-50%, -50%); pointer-events:none; display:none; width:900px; height:900px;"></div>`;
+            }
+            let h = '';
+            const bg = ['partlycloudy', 'sunny', 'clear-night'].includes(condition);
+            if (layer === 'background') return (bg && cond.clouds !== 'none') ? this._clouds(cond.clouds, css, isNight, windSpeed) : '';
+            if (layer === 'foreground') {
+                if (cond.lightning) h += `<div class="lightning"></div>`;
+                if (!bg && cond.clouds !== 'none') h += this._clouds(cond.clouds, css, isNight, windSpeed);
+                if (cond.drops) {
+                    const dropsCount = this.config.rain_intensity?.[cond.drops] || conf.rain_intensity[cond.drops] || 0;
+                    h += this._rain(dropsCount, css);
+                }
+                if (cond.flakes) {
+                    const flakesCount = this.config.snow_intensity?.[cond.flakes] || conf.snow_intensity[cond.flakes] || 0;
+                    h += this._snow(flakesCount, css);
+                }
+                if (cond.fog) h += this._fog(5, css);
+                return h;
+            }
+            return '';
+        } catch (e) {
+            console.error('[MeteoCard] _renderLayer:', e);
+            return '';
+        }
+    }
+
+    _sunSVG() {
+        try {
+            const def = MeteoCard.DEFAULTS.sun;
+            const s = this.config.sun || {};
+            const col = s.colors || def.colors;
+            return `<svg viewBox="0 0 300 300" style="width:100%; height:100%; overflow:visible;"><defs><radialGradient id="sunAura"><stop offset="0%" stop-color="${col.aura}" stop-opacity="${s.aura_opacity || def.aura_opacity}"/><stop offset="100%" stop-color="#FF6600" stop-opacity="0"/></radialGradient><radialGradient id="sunHalo"><stop offset="0%" stop-color="${col.halo}" stop-opacity="${s.halo_opacity || def.halo_opacity}"/><stop offset="100%" stop-color="${col.aura}" stop-opacity="0"/></radialGradient></defs><circle cx="150" cy="150" r="${s.aura_radius || def.aura_radius}" fill="url(#sunAura)"/><circle cx="150" cy="150" r="${s.halo_radius || def.halo_radius}" fill="url(#sunHalo)"/><circle cx="150" cy="150" r="${s.disc_radius || def.disc_radius}" fill="${col.disc}" style="filter:blur(1px);"/></svg>`;
+        } catch (e) {
+            console.error('[MeteoCard] _sunSVG:', e);
+            return '';
+        }
+    }
+
+    _moonSVG(phase, isDaytime, moonPhaseDegrees = 0) {
+        try {
+            const def = MeteoCard.DEFAULTS.moon;
+            const m = this.config.moon || {};
+            const col = m.colors || def.colors;
+            const r = m.disc_radius || def.disc_radius;
+            const pl = (phase || '').toLowerCase();
+            let p = pl.includes('new') ? 0 : pl.includes('crescent') ? 0.22 : pl.includes('quarter') ? 0.5 : pl.includes('gibbous') ? 0.78 : 1;
+            const iw = pl.includes('waning') || pl.includes('last');
+            const hr = Math.abs(Math.cos(p * Math.PI)) * r;
+            const bo = isDaytime ? 0.4 : 1.0;
+
+            this._moonMaskIdCounter = (this._moonMaskIdCounter || 0) + 1;
+            const mid = `moon-mask-${this._moonMaskIdCounter}`;
+
+            return `<svg viewBox="0 0 300 300" style="width:100%; height:100%; overflow:visible;"><defs><filter id="mtx" x="-100%" y="-100%" width="300%" height="300%"><feTurbulence type="fractalNoise" baseFrequency="0.5" numOctaves="2" result="noise"/><feDiffuseLighting lighting-color="#FFFFFF" surfaceScale="1" result="diffuse"><feDistantLight azimuth="45" elevation="45"/></feDiffuseLighting><feComposite in="diffuse" in2="SourceGraphic" operator="in"/></filter><mask id="${mid}"><g transform="translate(150,150) rotate(${moonPhaseDegrees})"><path d="M 0,${-r} A ${r},${r} 0 1,${iw ? 0 : 1} 0,${r} A ${hr},${r} 0 0,${p <= 0.5 ? (iw ? 1 : 0) : (iw ? 0 : 1)} 0,${-r}" fill="white" filter="blur(0.8px)"/></g></mask><radialGradient id="ma"><stop offset="0%" stop-color="${col.aura}" stop-opacity="${(m.aura_opacity || def.aura_opacity) * p * bo}"/><stop offset="100%" stop-color="${col.aura}" stop-opacity="0"/></radialGradient><radialGradient id="m3d" cx="40%" cy="40%" r="50%"><stop offset="0%" stop-color="${col.disc_light}"/><stop offset="100%" stop-color="${col.disc_dark}"/></radialGradient></defs><circle cx="150" cy="150" r="${m.aura_radius || def.aura_radius}" fill="url(#ma)"/><circle cx="150" cy="150" r="${m.halo_radius || def.halo_radius}" fill="#FFFFFF" opacity="${(m.halo_opacity || def.halo_opacity) * p * bo}" style="filter:blur(5px);"/><g mask="url(#${mid})" style="opacity:${bo}"><g transform="translate(150,150) rotate(${moonPhaseDegrees})"><circle cx="0" cy="0" r="${r + 0.5}" fill="url(#m3d)" /><circle cx="0" cy="0" r="${r + 0.5}" fill="white" filter="url(#mtx)" opacity="0.3" style="mix-blend-mode: soft-light;"/></g></g></svg>`;
+        } catch (e) {
+            console.error('[MeteoCard] _moonSVG:', e);
+            return '';
+        }
+    }
+
+    _clouds(type, css, isNight, windSpeed = 25) {
+        try {
+            const [nc, pc, gr] = MeteoCard.DEFAULTS.clouds[type] || MeteoCard.DEFAULTS.clouds.low;
+            const bc = 255 - (gr * 25);
+            let html = '';
+            const baseDuration = (20 / (windSpeed + 1)) * 60;
+
+            for (let i = 0; i < nc; i++) {
+                const id = `cl-${this.cloudCounter++}`;
+                const bs = 60 + Math.random() * 50;
+                const randomFactor = (Math.floor(Math.random() * 81) + 60) / 100;
+                const dur = (baseDuration * randomFactor).toFixed(2);
+                const tp = Math.round(Math.random() * 9500) / 100;
+                const cw = Math.round(bs * (2.5 + (pc / 4)));
+                const delay = Math.round(Math.random() * dur * 100) / 100;
+                const opacity = type === 'heavy' ? 0.9 : 0.7;
+                const zIdx = Math.floor(tp);
+
+                css.content += `.${id}{position:absolute;top:${tp}%;left:-${cw * 2}px;width:${cw}px;height:${Math.round(bs * 2.2)}px;animation:to-right ${dur}s linear infinite;animation-delay:-${delay}s;filter:url(#cloud-distort) blur(5px);opacity:${opacity};mix-blend-mode:${isNight ? 'normal' : 'screen'};z-index:${zIdx}} .${id} .puff{position:absolute;border-radius:50%;background:radial-gradient(circle at 35% 30%,rgba(${Math.min(255, bc + 45)},${Math.min(255, bc + 45)},${Math.min(255, bc + 45)},1) 0%,rgba(${bc},${bc},${bc + 10},.8) 50%,rgba(${Math.max(0, bc - 55)},${Math.max(0, bc - 55)},${Math.max(0, bc - 55 + 20)},.4) 100%);filter:blur(10px)}`;
+
+                let puffs = '';
+                for (let j = 0; j < pc; j++) {
+                    const pw = Math.round(bs * (1.1 + Math.random() * 0.9));
+                    const ph = Math.round(pw * 0.9);
+                    const pl = Math.round((j * (85 / pc) + Math.random() * 10) * 100) / 100;
+                    const pt = Math.round((Math.random() * (bs * 0.4) - bs * 0.2) * 100) / 100;
+
+                    puffs += `<div class="puff" style="width:${pw}px;height:${ph}px;left:${pl}%;top:${pt}px"></div>`;
+                }
+                html += `<div class="${id}">${puffs}</div>`;
+            }
+            return html;
+        } catch (e) {
+            console.error('[MeteoCard] _clouds:', e);
+            return '';
+        }
+    }
+
+    _stars(n, css) {
+        try {
+            let html = '';
+            for (let i = 0; i < n; i++) {
+                const id = `st-${i}`;
+                const duration = (2 + Math.random() * 3).toFixed(2);
+                const top = Math.round(Math.random() * 10000) / 100;
+                const left = Math.round(Math.random() * 10000) / 100;
+
+                css.content += `.${id}{position:absolute;width:1.5px;height:1.5px;background:#FFF;border-radius:50%;top:${top}%;left:${left}%;animation:star ${duration}s infinite;z-index:1}`;
+                html += `<div class="${id}"></div>`;
+            }
+            return html;
+        } catch (e) {
+            console.error('[MeteoCard] _stars:', e);
+            return '';
+        }
+    }
+
+    _shootings(n, css) {
+        let h = '';
+        for (let i = 0; i < n; i++) {
+            const id = `sh-${i}`;
+            css.content += `.${id}{position:absolute;width:100px;height:1px;background:linear-gradient(to right,transparent,white);top:${Math.random()*50}%;left:${Math.random()*100}%;transform:rotate(45deg) translateX(-200px);opacity:0;animation:shot 15s infinite;animation-delay:${Math.random()*15}s;z-index:2;}`;
+            h += `<div class="${id}"></div>`;
+        }
+        return h;
+    }
+
+    _rain(n, css) {
+        try {
+            let html = '';
+            for (let i = 0; i < n; i++) {
+                const id = `ra-${i}`;
+                const left = Math.round(Math.random() * 10000) / 100;
+                const delay = Math.round(Math.random() * 2000) / 100;
+
+                css.content += `.${id}{position:absolute;width:1px;height:40px;background:linear-gradient(to bottom,transparent,rgba(255,255,255,0.4));left:${left}%;top:-50px;animation:rain-fall 0.6s linear infinite;animation-delay:-${delay}s;z-index:500}`;
+                html += `<div class="${id}"></div>`;
+            }
+            return html;
+        } catch (e) {
+            console.error('[MeteoCard] _rain:', e);
+            return '';
+        }
+    }
+
+    _snow(n, css) {
+        let h = '';
+        for (let i = 0; i < n; i++) {
+            const id = `sn-${i}`;
+            const sw = 15 + Math.random() * 30;
+            css.content += `.${id}{position:absolute;width:${2+Math.random()*4}px;height:${2+Math.random()*4}px;background:#FFFFFF;border-radius:50%;left:${Math.random()*100}%;top:-10px;opacity:${0.4+Math.random()*0.6};filter:blur(1px);animation:snow-fall ${7+Math.random()*5}s linear infinite, snow-sway ${2+Math.random()*2}s ease-in-out infinite alternate;animation-delay:-${Math.random()*10}s;--sway:${sw}px;z-index:500;}`;
+            h += `<div class="${id}"></div>`;
+        }
+        return h;
+    }
+
+    _fog(n, css) {
+        try {
+            let html = '';
+            for (let i = 0; i < n; i++) {
+                const id = `fog-${i}`;
+                const dur = (8 + Math.random() * 8).toFixed(2);
+                const top = 30 + (i * 10);
+                const delay = Math.round(Math.random() * dur * 100) / 100;
+                const zIdx = 600 + i;
+
+                css.content += `.${id}{position:absolute;width:150%;height:180px;left:-25%;top:${top}%;background:linear-gradient(to bottom,transparent 0%,rgba(255,255,255,0.25) 35%,rgba(255,255,255,0.45) 50%,rgba(255,255,255,0.25) 65%,transparent 100%);animation:fog-boil ${dur}s ease-in-out infinite alternate;animation-delay:-${delay}s;filter:blur(15px);will-change:transform,opacity;z-index:${zIdx}}`;
+                html += `<div class="${id}"></div>`;
+            }
+            return html;
+        } catch (e) {
+            console.error('[MeteoCard] _fog:', e);
+            return '';
+        }
+    }
+
+    _zIdx(l) {
+        return {
+            'sky': 1,
+            'sun': 2,
+            'moon': 2,
+            'background': 10,
+            'foreground': 500
+        } [l] || 2;
+    }
+
+    _formatTime(hour) {
+        const h = Math.floor(hour);
+        const m = Math.floor((hour % 1) * 60);
+        return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`;
+    }
+
+    _weatherMatrix(state) {
+        const s = (state || '').toLowerCase();
+        if (s.includes('lightning') || s.includes('storm')) return 'lightning-rainy';
+        if (s.includes('pouring') || s.includes('heavy')) return 'pouring';
+        if (s.includes('rain')) return 'rainy';
+        if (s.includes('snow')) return 'snowy';
+        if (s.includes('partly') || s.includes('broken')) return 'partlycloudy';
+        if (s.includes('cloud')) return 'cloudy';
+        if (s.includes('fog') || s.includes('mist')) return 'fog';
+        if (s.includes('clear')) return 'clear-night';
+        return 'sunny';
+    }
+
+    _injectStyles() {
+        const s = document.createElement('style');
+        s.textContent = `
       ha-card { width: 100% !important; height: 100% !important; min-height: 320px !important; position: relative !important; overflow: hidden !important; background: transparent !important; border: none !important; display: block !important; isolation: isolate; }
       .layer-container { pointer-events: none; position: absolute; inset: 0; }
       .demo-ui-container { position: absolute; top: 10px; left: 10px; z-index: 999; pointer-events: auto; display: flex; flex-direction: column; gap: 8px; }
@@ -650,25 +1026,24 @@ _getCoords(azimuth, elevation) {
       .demo-btn-play { background: rgba(0,0,0,0.85); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 6px; width: 30px; height: 26px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; }
       .demo-data { background: rgb(20, 20, 20); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 10px; color: #eee; font-family: monospace; font-size: 10px; line-height: 1.4; pointer-events: none; text-shadow: 1px 1px 1px black; min-width: 200px; min-height: 80px; box-shadow: 0 4px 15px rgba(0,0,0,0.6); }
       .line { margin-bottom: 2px; }
-      @keyframes star { 0%,100%{opacity:1;} 50%{opacity:0.2;} }
-      @keyframes shot { 0%{transform:rotate(45deg) translateX(-200px);opacity:0;} 1%{opacity:1;} 10%{transform:rotate(45deg) translateX(1200px);opacity:0;} 100%{opacity:0;} }
-      @keyframes to-right { to { transform:translateX(130vw); } }
-      @keyframes rain-fall { to { transform:translateY(110vh) skewX(-15deg); } }
-      @keyframes snow-fall { 0% { transform: translateY(-10vh); } 100% { transform: translateY(110vh); } }
-      @keyframes snow-sway { 0% { margin-left: calc(var(--sway) * -1); } 100% { margin-left: var(--sway); } }
-      .lightning { position: absolute; inset: 0; background: white; opacity: 0; animation: flash 5s infinite; z-index: 998; mix-blend-mode: overlay; }
-      @keyframes flash { 0%,90%,94%,100%{opacity:0;} 92%{opacity:0.4;} }
-      @keyframes fog-boil { 0% { transform: scale(1) translateY(0); opacity: 0.15; } 50% { opacity: 0.85; } 100% { transform: scale(1.15) translateY(-20px); opacity: 0.15; } }
       .sun-container, .moon-container { transition: left 0.5s linear, top 0.5s linear; }
+      .lightning { position: absolute; inset: 0; background: white; opacity: 0; animation: flash 5s infinite; z-index: 998; mix-blend-mode: overlay; }
     `;
-    this.appendChild(s);
-  }
+        this.appendChild(s);
+
+        if (!this._keyframesSheet) {
+            this._keyframesSheet = document.createElement('style');
+            this._keyframesSheet.id = 'meteo-keyframes';
+            this.appendChild(this._keyframesSheet);
+        }
+    }
 }
+
 if (!customElements.get('meteo-card')) {
-  customElements.define('meteo-card', MeteoCard);
+    customElements.define('meteo-card', MeteoCard);
 }
 
 window.customCards = window.customCards || [];
 window.customCards.push(CARD_CONFIG);
 
-console.info("%c MeteoCSS Card %c v1.0.8 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
+console.info("%c MeteoCSS Card %c v1.1.0 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
