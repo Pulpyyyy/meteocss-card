@@ -50,6 +50,36 @@ class MeteoCard extends HTMLElement {
                     aura: '#FFCC00',
                     halo: '#FFFFFF',
                     disc: '#FFFFFF'
+                },
+                lens_flare: {
+                    enabled: true,
+                    halo_radius: 120,
+                    halo_stroke_width: 2,
+                    halo_opacity: 0.3,
+                    inner_halo_radius: 50,
+                    inner_halo_stroke_width: 1,
+                    inner_halo_opacity: 0.2,
+                    flares: [
+                        {
+                            distance: 80,
+                            radius: 18,
+                            color: '#FFFFFF',
+                            opacity: 0.25
+                        },
+                        {
+                            distance: 130,
+                            radius: 12,
+                            color: '#FFAAFF',
+                            opacity: 0.15
+                        },
+                        {
+                            distance: 160,
+                            radius: 8,
+                            color: '#AAFFFF',
+                            opacity: 0.1
+                        }
+                    ],
+                    glow_stdDeviation: 3
                 }
             },
             moon: {
@@ -257,6 +287,13 @@ class MeteoCard extends HTMLElement {
             this._invertAzimuth = config.invert_azimuth === true;
 
             this._rainWidth = parseFloat(config.rain_intensity?.width) || MeteoCard.DEFAULTS.rain_intensity.width;
+
+            this._sunConfig = { 
+                ...MeteoCard.DEFAULTS.sun, 
+                ...config.sun,
+                lens_flare: { ...MeteoCard.DEFAULTS.sun.lens_flare, ...config.sun?.lens_flare }
+            };
+            this._moonConfig = { ...MeteoCard.DEFAULTS.moon, ...config.moon };
 
             this._weatherEntityId = this._getEntity('weather', 'location');
             this._sunEntityId = this._getEntity('sun_entity', 'sun_entity');
@@ -607,6 +644,16 @@ class MeteoCard extends HTMLElement {
                 if (sunPos.elevation < 0) sun.innerHTML = '';
             }
 
+            const lensFlare = this._domCache.lensFlare || this.content?.querySelector('.lens-flare');
+            if (lensFlare) {
+                if (sunPos.elevation >= 0 && this._sunConfig.lens_flare.enabled) {
+                    const minuteOfDay = Math.floor(hour * 60);
+                    lensFlare.innerHTML = this._lensFlare(sunPos, minuteOfDay);
+                } else {
+                    lensFlare.innerHTML = '';
+                }
+            }
+
             const moon = this._domCache.moonContainer || this.content?.querySelector('.moon-container');
             if (moon) {
                 moon.style.display = moonPos.elevation >= 0 ? 'block' : 'none';
@@ -628,7 +675,7 @@ class MeteoCard extends HTMLElement {
                     <div class="line"><b>Sun:</b> Alt: ${sunPos.elevation.toFixed(1)}° | Az: ${sunPos.azimuth.toFixed(1)}°</div>
                     <div class="line"><b>Moon:</b> Alt: ${moonPos.elevation.toFixed(1)}° | Az: ${moonPos.azimuth.toFixed(1)}°</div>
                     <div class="line"><b>Phase:</b> ${this._safe(moonPhase)} | <b>Rot:</b> ${Math.floor(moonPhaseDegrees || 0)}°</div>
-                    `;
+                `;
             }
         } catch (e) {
             console.error('[MeteoCard] _updateDynamic:', e);
@@ -738,6 +785,7 @@ class MeteoCard extends HTMLElement {
             skyBg: this.content?.querySelector('.sky-bg'),
             sunContainer: this.content?.querySelector('.sun-container'),
             moonContainer: this.content?.querySelector('.moon-container'),
+            lensFlare: this.content?.querySelector('.lens-flare'),
             infoBox: this.content?.querySelector('.demo-data')
         };
     }
@@ -809,7 +857,11 @@ class MeteoCard extends HTMLElement {
                     (isNight ? `<div style="position:absolute; inset:0;">${this._stars(100, css)}${this._shootings(2, css)}</div>` : '');
             }
             if (layer === 'sun' || layer === 'moon') {
-                return `<div class="${layer}-container" style="position:absolute; transform:translate(-50%, -50%); pointer-events:none; display:none; width:900px; height:900px;"></div>`;
+                let sunLayer = `<div class="${layer}-container" style="position:absolute; transform:translate(-50%, -50%); pointer-events:none; display:none; width:900px; height:900px;"></div>`;
+                if (layer === 'sun') {
+                    sunLayer += `<div class="lens-flare" style="position:absolute;inset:0;"></div>`;
+                }
+                return sunLayer;
             }
             let h = '';
             const bg = ['partlycloudy', 'sunny', 'clear-night'].includes(condition);
@@ -843,6 +895,59 @@ class MeteoCard extends HTMLElement {
             return `<svg viewBox="0 0 300 300" style="width:100%; height:100%; overflow:visible;"><defs><radialGradient id="sunAura"><stop offset="0%" stop-color="${col.aura}" stop-opacity="${s.aura_opacity || def.aura_opacity}"/><stop offset="100%" stop-color="#FF6600" stop-opacity="0"/></radialGradient><radialGradient id="sunHalo"><stop offset="0%" stop-color="${col.halo}" stop-opacity="${s.halo_opacity || def.halo_opacity}"/><stop offset="100%" stop-color="${col.aura}" stop-opacity="0"/></radialGradient></defs><circle cx="150" cy="150" r="${s.aura_radius || def.aura_radius}" fill="url(#sunAura)"/><circle cx="150" cy="150" r="${s.halo_radius || def.halo_radius}" fill="url(#sunHalo)"/><circle cx="150" cy="150" r="${s.disc_radius || def.disc_radius}" fill="${col.disc}" style="filter:blur(1px);"/></svg>`;
         } catch (e) {
             console.error('[MeteoCard] _sunSVG:', e);
+            return '';
+        }
+    }
+
+    _lensFlare(sunPos, minuteOfDay = 0) {
+        try {
+            const def = MeteoCard.DEFAULTS.sun.lens_flare;
+            const lf = this._sunConfig.lens_flare;
+            
+            if (!lf.enabled) return '';
+            
+            const safeMinute = minuteOfDay % 1440;
+            const rotation = (safeMinute / 720) * 360;
+            const elevationOpacity = Math.max(0, Math.min(1, (sunPos.elevation + 5) / 20));
+            const cx = (sunPos.left / 100) * 300;
+            const cy = (sunPos.top / 100) * 300;
+            
+            const glowStd = lf.glow_stdDeviation ?? def.glow_stdDeviation;
+            const haloRadius = lf.halo_radius ?? def.halo_radius;
+            const haloStrokeWidth = lf.halo_stroke_width ?? def.halo_stroke_width;
+            const haloOpacity = (lf.halo_opacity ?? def.halo_opacity) * elevationOpacity;
+            const innerHaloRadius = lf.inner_halo_radius ?? def.inner_halo_radius;
+            const innerHaloStrokeWidth = lf.inner_halo_stroke_width ?? def.inner_halo_stroke_width;
+            const innerHaloOpacity = (lf.inner_halo_opacity ?? def.inner_halo_opacity) * elevationOpacity;
+            const flares = lf.flares ?? def.flares;
+            
+            let flareCircles = '';
+            if (flares && Array.isArray(flares)) {
+                flares.forEach(flare => {
+                    const opacityValue = (flare.opacity ?? 0.2) * elevationOpacity;
+                    flareCircles += `<circle cx="${flare.distance}" cy="0" r="${flare.radius}" fill="${flare.color}" opacity="${opacityValue}"/>\n`;
+                });
+            }
+            
+            return `<svg viewBox="0 0 300 300" style="width:100%; height:100%; overflow:visible;">
+                <defs>
+                    <filter id="lens-glow" x="-50%" y="-50%" width="200%" height="200%">
+                        <feGaussianBlur in="SourceGraphic" stdDeviation="${glowStd}"/>
+                    </filter>
+                </defs>
+                <g transform="translate(${cx}, ${cy}) rotate(${rotation})" opacity="${elevationOpacity}">
+                    <!-- Grand halo central -->
+                    <circle cx="0" cy="0" r="${haloRadius}" fill="none" stroke="#FFFFFF" stroke-width="${haloStrokeWidth}" opacity="${haloOpacity}" filter="url(#lens-glow)"/>
+                    
+                    <!-- Reflets en ligne -->
+                    ${flareCircles}
+                    
+                    <!-- Petit halo intérieur -->
+                    <circle cx="0" cy="0" r="${innerHaloRadius}" fill="none" stroke="#FFFF99" stroke-width="${innerHaloStrokeWidth}" opacity="${innerHaloOpacity}" filter="url(#lens-glow)"/>
+                </g>
+            </svg>`;
+        } catch (e) {
+            console.error('[MeteoCard] _lensFlare:', e);
             return '';
         }
     }
@@ -1054,4 +1159,4 @@ if (!customElements.get('meteo-card')) {
 window.customCards = window.customCards || [];
 window.customCards.push(CARD_CONFIG);
 
-console.info("%c MeteoCSS Card %c v1.1.2 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
+console.info("%c MeteoCSS Card %c v1.1.3 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");

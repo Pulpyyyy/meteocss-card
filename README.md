@@ -139,6 +139,28 @@ sun:
     aura: '#FFCC00'       # Outer glow color
     halo: '#FFFFFF'       # Middle halo color
     disc: '#FFFFFF'       # Center disc color
+  lens_flare:
+    enabled: true         # Enable/disable lens flare effect
+    halo_radius: 120      # Large outer halo radius
+    halo_stroke_width: 2  # Stroke thickness
+    halo_opacity: 0.3     # Halo transparency (0-1)
+    inner_halo_radius: 50 # Inner halo radius
+    inner_halo_stroke_width: 1  # Inner stroke thickness
+    inner_halo_opacity: 0.2     # Inner halo transparency
+    glow_stdDeviation: 3  # Blur intensity (higher = more blur)
+    flares:               # Array of lens flare reflections
+      - distance: 80      # Distance from sun center
+        radius: 18        # Circle radius
+        color: '#FFFFFF'  # Reflection color
+        opacity: 0.25     # Reflection transparency
+      - distance: 130
+        radius: 12
+        color: '#FFAAFF'
+        opacity: 0.15
+      - distance: 160
+        radius: 8
+        color: '#AAFFFF'
+        opacity: 0.1
 
 # Moon Configuration
 moon:
@@ -179,9 +201,9 @@ clouds:
 
 # Rain Configuration
 rain_intensity:
-  width: 1       #Drop size
+  width: 1       # Drop size
   heavy: 200     # Downpour during storms
-  normal: 100
+  normal: 100    # Regular rain
   low: 50        # Very light rain
 
 # Snow Configuration
@@ -198,6 +220,32 @@ layers:
 
 # Demo Mode (simulator without real entities)
 demo_mode: false
+```
+
+## Lens Flare Configuration Examples
+
+### Disable lens flare globally
+```yaml
+sun:
+  lens_flare: false
+```
+
+### Customize lens flare appearance
+```yaml
+sun:
+  lens_flare:
+    enabled: true
+    halo_radius: 150          # Larger outer halo
+    glow_stdDeviation: 5      # More blur
+    flares:
+      - distance: 100
+        radius: 20
+        color: '#FF0000'      # Red reflection
+        opacity: 0.3
+      - distance: 150
+        radius: 15
+        color: '#00FF00'      # Green reflection
+        opacity: 0.2
 ```
 
 ### Advanced Custom Colors Example
