@@ -396,7 +396,7 @@ sun:
   aura_opacity: 0.2  # Brighten aura
 ```
 
-### Adjust Cloud Quantity and Density
+### Adjust Cloud Density and Position
 
 ```yaml
 clouds:
