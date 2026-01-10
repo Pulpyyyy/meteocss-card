@@ -102,6 +102,44 @@ weather: weather.home
 sun_entity: sun.sun
 ```
 
+### Picture-elements example
+
+```yaml
+type: picture-elements
+image: /local/empty.png
+elements:
+  - type: custom:meteo-card
+    demo_mode: false
+    weather: weather.home
+    layers:
+      - sky
+      - background
+    style:
+      top: 50%
+      left: 50%
+      width: 100%
+      height: 100%
+  - type: image
+    image: /local/base.png
+    entity: weather.home
+    style:
+      top: 50%
+      left: 50%
+      width: 100%
+  - type: custom:meteo-card
+    demo_mode: false
+    weather: weather.home
+    layers:
+      - moon
+      - sun
+      - foreground
+    style:
+      top: 50%
+      left: 50%
+      width: 100%
+      height: 100%
+```
+
 ### Complete YAML and default values configuration Example
 
 ```yaml
