@@ -5,6 +5,68 @@ const CARD_CONFIG = {
     preview: true
 };
 
+class EntityValidator {
+    static validate(hass, entityId, schema = {}) {
+        if (!hass || typeof hass !== 'object') {
+            console.error('[EntityValidator] hass object is invalid');
+            return null;
+        }
+
+        const entity = hass.states?.[entityId];
+        if (!entity) {
+            return null;
+        }
+
+        if (schema.state !== undefined) {
+            if (typeof entity.state !== 'string') {
+                console.error(`[EntityValidator] Invalid state type for ${entityId}`);
+                return null;
+            }
+        }
+
+        if (schema.requiredAttributes && Array.isArray(schema.requiredAttributes)) {
+            for (const attr of schema.requiredAttributes) {
+                if (!(attr in entity.attributes)) {
+                    console.warn(`[EntityValidator] Missing attribute '${attr}' for ${entityId}`);
+                    return null;
+                }
+            }
+        }
+
+        if (schema.numericAttribute) {
+            for (const [attr, options] of Object.entries(schema.numericAttribute)) {
+                const value = parseFloat(entity.attributes?.[attr]);
+                if (isNaN(value)) {
+                    console.warn(`[EntityValidator] ${attr} is not numeric for ${entityId}`);
+                    return null;
+                }
+                if (options.min !== undefined && value < options.min) {
+                    console.warn(`[EntityValidator] ${attr} (${value}) below minimum ${options.min}`);
+                    return null;
+                }
+                if (options.max !== undefined && value > options.max) {
+                    console.warn(`[EntityValidator] ${attr} (${value}) above maximum ${options.max}`);
+                    return null;
+                }
+            }
+        }
+
+        return entity;
+    }
+
+    static getNumericAttribute(entity, attributeName, defaultValue = 0) {
+        if (!entity || !entity.attributes) return defaultValue;
+        const value = parseFloat(entity.attributes[attributeName]);
+        return isNaN(value) ? defaultValue : value;
+    }
+
+    static getStringAttribute(entity, attributeName, defaultValue = '') {
+        if (!entity || !entity.attributes) return defaultValue;
+        const value = entity.attributes[attributeName];
+        return (value !== null && value !== undefined) ? String(value) : defaultValue;
+    }
+}
+
 class MeteoState {
     constructor(data = {}) {
         this.condition = data.condition || 'sunny';
@@ -284,6 +346,14 @@ class MeteoCard extends HTMLElement {
         this._moonDegreesEntityId = null;
         this._cachedDemoOptions = null;
         this._meteoConfig = null;
+        this._validatedEntities = {
+            weather: null,
+            sun: null,
+            moonAzimuth: null,
+            moonElevation: null,
+            moonPhase: null,
+            moonDegrees: null
+        };
     }
 
     set hass(hass) {
@@ -298,7 +368,7 @@ class MeteoCard extends HTMLElement {
                 this._injectStyles();
             }
 
-            if (!this._meteoConfig.get('demo_mode')) {
+            if (this._validatedEntities && !this._meteoConfig.get('demo_mode')) {
                 const now = Date.now();
                 if (this._lastHassUpdate && now - this._lastHassUpdate < 1000) {
                     this._hass = hass;
@@ -319,9 +389,70 @@ class MeteoCard extends HTMLElement {
             }
 
             this._hass = hass;
+            
+            if (this._validatedEntities && this._validatedEntities.weather === null) {
+                this._validateEntitiesFromHass(hass);
+            }
+
             this._update();
         } catch (e) {
             console.error('[MeteoCard] hass setter:', e);
+        }
+    }
+
+    _validateEntitiesFromHass(hass) {
+        try {
+            this._validatedEntities.weather = EntityValidator.validate(
+                hass,
+                this._weatherEntityId,
+                { state: true }
+            );
+
+            this._validatedEntities.sun = EntityValidator.validate(
+                hass,
+                this._sunEntityId,
+                {
+                    requiredAttributes: ['azimuth', 'elevation'],
+                    numericAttribute: {
+                        'azimuth': { min: 0, max: 360 },
+                        'elevation': { min: -180, max: 180 }
+                    }
+                }
+            );
+
+            if (!this._moonAzimuthEntityId) {
+                const moonAzAlt = EntityValidator.validate(hass, 'sensor.luna_lunar_azimuth') ||
+                                  EntityValidator.validate(hass, 'sensor.moon_azimuth');
+                this._validatedEntities.moonAzimuth = moonAzAlt;
+            } else {
+                this._validatedEntities.moonAzimuth = EntityValidator.validate(hass, this._moonAzimuthEntityId);
+            }
+
+            if (!this._moonElevationEntityId) {
+                const moonElAlt = EntityValidator.validate(hass, 'sensor.luna_lunar_elevation') ||
+                                  EntityValidator.validate(hass, 'sensor.moon_elevation');
+                this._validatedEntities.moonElevation = moonElAlt;
+            } else {
+                this._validatedEntities.moonElevation = EntityValidator.validate(hass, this._moonElevationEntityId);
+            }
+
+            if (!this._moonPhaseEntityId) {
+                const moonPhaseAlt = EntityValidator.validate(hass, 'sensor.luna_lunar_phase') ||
+                                     EntityValidator.validate(hass, 'sensor.moon_phase');
+                this._validatedEntities.moonPhase = moonPhaseAlt;
+            } else {
+                this._validatedEntities.moonPhase = EntityValidator.validate(hass, this._moonPhaseEntityId);
+            }
+
+            if (!this._moonDegreesEntityId) {
+                const moonDegreesAlt = EntityValidator.validate(hass, 'sensor.luna_lunar_phase_degrees') ||
+                                       EntityValidator.validate(hass, 'sensor.moon_phase_degrees');
+                this._validatedEntities.moonDegrees = moonDegreesAlt;
+            } else {
+                this._validatedEntities.moonDegrees = EntityValidator.validate(hass, this._moonDegreesEntityId);
+            }
+        } catch (e) {
+            console.error('[MeteoCard] _validateEntitiesFromHass:', e);
         }
     }
 
@@ -335,6 +466,15 @@ class MeteoCard extends HTMLElement {
             this._moonElevationEntityId = this._meteoConfig.get('moon_elevation_entity');
             this._moonPhaseEntityId = this._meteoConfig.get('moon_phase_entity');
             this._moonDegreesEntityId = this._meteoConfig.get('moon_degrees_entity');
+
+            this._validatedEntities = {
+                weather: null,
+                sun: null,
+                moonAzimuth: null,
+                moonElevation: null,
+                moonPhase: null,
+                moonDegrees: null
+            };
 
             if (!this.content) {
                 this.innerHTML = `<ha-card></ha-card>`;
@@ -441,12 +581,25 @@ class MeteoCard extends HTMLElement {
 
     _getCoords(azimuth, elevation) {
         try {
+            const az = parseFloat(azimuth);
+            const el = parseFloat(elevation);
+
+            if (isNaN(az) || isNaN(el)) {
+                console.warn('[MeteoCard] Invalid coordinates:', { azimuth, elevation });
+                return {
+                    left: 50,
+                    top: 50,
+                    elevation: 0,
+                    azimuth: 0
+                };
+            }
+
             const o = this._meteoConfig.get('orbit');
             const houseAngle = this._meteoConfig.get('house_angle');
             const invertAzimuth = this._meteoConfig.get('invert_azimuth');
 
-            let az = invertAzimuth ? (parseFloat(azimuth) + 180) % 360 : parseFloat(azimuth);
-            const rad = (az - houseAngle) * Math.PI / 180;
+            let finalAz = invertAzimuth ? (az + 180) % 360 : az;
+            const rad = (finalAz - houseAngle) * Math.PI / 180;
             const x0 = o.rx * Math.sin(rad);
             const y0 = -o.ry * Math.cos(rad);
             const tiltRad = o.tilt * Math.PI / 180;
@@ -454,10 +607,10 @@ class MeteoCard extends HTMLElement {
             const yRot = x0 * Math.sin(tiltRad) + y0 * Math.cos(tiltRad);
 
             return {
-                left: o.cx + xRot,
-                top: o.cy + yRot,
-                elevation: parseFloat(elevation) || 0,
-                azimuth: az
+                left: Math.max(0, Math.min(100, o.cx + xRot)),
+                top: Math.max(0, Math.min(100, o.cy + yRot)),
+                elevation: el,
+                azimuth: finalAz
             };
         } catch (e) {
             console.error('[MeteoCard] _getCoords:', e);
@@ -601,32 +754,46 @@ class MeteoCard extends HTMLElement {
 
     _realData() {
         try {
-            const w = this._hass?.states?.[this._weatherEntityId];
-            const s = this._hass?.states?.[this._sunEntityId];
-            if (!w || !s) return null;
+            if (!this._hass || !this._validatedEntities.weather || !this._validatedEntities.sun) {
+                return null;
+            }
 
-            const cond = this._weatherMatrix(w.state);
-            const isNight = s.state === 'below_horizon';
-            const sunPos = this._getCoords(s.attributes?.azimuth || 0, s.attributes?.elevation || 0);
-            const hour = new Date().getHours() + (new Date().getMinutes() / 60);
+            const weatherEntity = this._hass.states[this._weatherEntityId];
+            const sunEntity = this._hass.states[this._sunEntityId];
 
-            const ma = this._hass.states?.[this._moonAzimuthEntityId];
-            const me = this._hass.states?.[this._moonElevationEntityId];
-            const mp = this._hass.states?.[this._moonPhaseEntityId];
-            const md = this._hass.states?.[this._moonDegreesEntityId];
+            if (!weatherEntity || !sunEntity) return null;
 
-            const moonPos = (ma && me) ? this._getCoords(parseFloat(ma.state) || 0, parseFloat(me.state) || 0) : this._getCoords((s.attributes?.azimuth || 0 + 180) % 360, -(s.attributes?.elevation || 0));
-            const windSpeed = parseFloat(w.attributes?.wind_speed) || 0;
+            const cond = this._weatherMatrix(weatherEntity.state);
+            const isNight = sunEntity.state === 'below_horizon';
+            
+            const sunAzimuth = parseFloat(sunEntity.attributes?.azimuth) || 0;
+            const sunElevation = parseFloat(sunEntity.attributes?.elevation) || 0;
+            const sunPos = this._getCoords(sunAzimuth, sunElevation);
+
+            let moonPos = this._getCoords((sunAzimuth + 180) % 360, -sunElevation);
+
+            const moonAzEntity = this._hass.states[this._moonAzimuthEntityId];
+            const moonElEntity = this._hass.states[this._moonElevationEntityId];
+            
+            if (moonAzEntity && moonElEntity) {
+                const moonAz = parseFloat(moonAzEntity.state) || (sunAzimuth + 180);
+                const moonEl = parseFloat(moonElEntity.state) || -sunElevation;
+                moonPos = this._getCoords(moonAz, moonEl);
+            }
+
+            const windSpeed = Math.max(0, parseFloat(weatherEntity.attributes?.wind_speed) || 0);
+            const moonPhaseEntity = this._hass.states[this._moonPhaseEntityId];
+            const moonDegreesEntity = this._hass.states[this._moonDegreesEntityId];
 
             return {
                 condition: cond,
                 isNight,
                 sunPos,
                 moonPos,
-                moonPhase: mp?.state || 'Full Moon',
-                moonPhaseDegrees: md ? parseFloat(md.state) || 0 : 0,
-                rising: s.attributes?.rising || false,
-                simulatedHour: hour,
+                moonPhase: moonPhaseEntity?.state || 'Full Moon',
+                moonPhaseDegrees: parseFloat(moonDegreesEntity?.state) || 0,
+                rising: sunEntity.attributes?.rising === true,
+                simulatedHour: new Date().getHours() + (new Date().getMinutes() / 60),
                 windSpeed
             };
         } catch (e) {
@@ -883,6 +1050,7 @@ class MeteoCard extends HTMLElement {
                 });
             }
         } catch (e) {
+            this._cleanupEvents();
             console.error('[MeteoCard] _setupEvents:', e);
         }
     }
@@ -1202,4 +1370,4 @@ if (!customElements.get('meteo-card')) {
 window.customCards = window.customCards || [];
 window.customCards.push(CARD_CONFIG);
 
-console.info("%c MeteoCSS Card %c v1.2.0 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
+console.info("%c MeteoCSS Card %c v1.2.1 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
