@@ -60,11 +60,17 @@ sun:
 
 ### Via HACS (recommended)
 
+[![HACS Installation](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Pulpyyyy&repository=meteocss-card&category=plugin)
+
+or
+
 1. Open HACS → **Frontend**
 2. Click on **⋮** → **Custom repositories**
 3. Add: `https://github.com/Pulpyyyy/meteocss-card`
-4. Select **MeteoCSS Card**
-5. Install and restart Home Assistant
+4. Select type  **Dashboard**
+5. Click on `Add`
+6. Now searh for **MeteoCSS Card**
+7. Install and restart Home Assistant
 
 ### Manual Installation
 
@@ -83,7 +89,7 @@ resources:
 
 ```yaml
 type: custom:meteo-card
-location: weather.home
+weather: weather.home
 sun_entity: sun.sun
 demo_mode: true
 ```
@@ -92,7 +98,7 @@ demo_mode: true
 
 ```yaml
 type: custom:meteo-card
-location: weather.home
+weather: weather.home
 sun_entity: sun.sun
 ```
 
@@ -102,7 +108,7 @@ sun_entity: sun.sun
 type: custom:meteo-card
 
 # Entity References
-location: weather.home                                         # Weather entity
+weather: weather.home                                         # Weather entity
 sun_entity: sun.sun                                            # Sun position entity
 moon_azimuth_entity: sensor.luna_lunar_azimuth                 # Moon azimuth (optional)
 moon_elevation_entity: sensor.luna_lunar_elevation             # Moon elevation (optional)
@@ -198,7 +204,7 @@ demo_mode: false
 
 ```yaml
 type: custom:meteo-card
-location: weather.home
+weather: weather.home
 sun_entity: sun.sun
 house_angle: 45
 
