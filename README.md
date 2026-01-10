@@ -55,6 +55,7 @@ sun:
    - `sensor.luna_lunar_azimuth`
    - `sensor.luna_lunar_elevation`
    - `sensor.luna_lunar_phase`
+   - `sensor.luna_lunar_phase_degrees`
 
 ## 🚀 Installation
 
@@ -151,7 +152,7 @@ sun_entity: sun.sun                                            # Sun position en
 moon_azimuth_entity: sensor.luna_lunar_azimuth                 # Moon azimuth (optional)
 moon_elevation_entity: sensor.luna_lunar_elevation             # Moon elevation (optional)
 moon_phase_entity: sensor.luna_lunar_phase                     # Moon phase (optional)
-moon_phase_degrees_entity: sensor.luna_lunar_phase_degrees     # Moon phase orientation (optional)
+moon_degrees_entity: sensor.luna_lunar_phase_degrees           # Moon phase rotation angle (optional)
 
 # Orbit Configuration (percentage of container)
 orbit:
@@ -213,7 +214,7 @@ moon:
     disc_light: '#FDFDFD' # Bright side of moon
     disc_dark: '#9595A5'  # Dark side of moon
 
-# Sky Colors for Each Condition
+# Sky Colors (as radial-gradient : https://gradients.app/en/newradial )
 colors:
   night:
     clear: '#25259C 0%, #2A2A60 40%, #0F0344 100%'     # Clear night gradient
@@ -236,6 +237,10 @@ clouds:
   low: [4, 2, 1]         # Few clouds
   minimal: [2, 2, 0]     # Minimal clouds
   none: [0, 0, 0]        # Clear sky
+  animation:             # Cloud animation settings
+    min_margin: 5        # Minimum margin from top (%)
+    max_margin: 85       # Maximum margin from top (%)
+    random_variation: 0.3 # Random position variation factor
 
 # Rain Configuration
 rain_intensity:
@@ -247,6 +252,13 @@ rain_intensity:
 # Snow Configuration
 snow_intensity:
   normal: 80
+
+# Fog Configuration
+fog:
+  opacity_min: 0.15      # Minimum fog opacity (0-1)
+  opacity_max: 0.85      # Maximum fog opacity (0-1)
+  blur: 15               # Blur effect strength (px)
+  height: 180            # Fog layer height (px)
 
 # Render Layers (order matters for z-index)
 layers:
@@ -265,7 +277,8 @@ demo_mode: false
 ### Disable lens flare globally
 ```yaml
 sun:
-  lens_flare: false
+  lens_flare:
+    enabled: false
 ```
 
 ### Customize lens flare appearance
@@ -284,6 +297,26 @@ sun:
         radius: 15
         color: '#00FF00'      # Green reflection
         opacity: 0.2
+```
+
+### Cloud Animation Customization
+
+```yaml
+clouds:
+  animation:
+    min_margin: 10      # Start clouds further down
+    max_margin: 90      # Extend higher
+    random_variation: 0.5 # More variation in positions
+```
+
+### Fog Effect Customization
+
+```yaml
+fog:
+  opacity_min: 0.25     # Brighter fog at minimum
+  opacity_max: 0.95     # Denser fog at maximum
+  blur: 20              # More blur for softer effect
+  height: 200           # Taller fog layers
 ```
 
 ### Advanced Custom Colors Example
@@ -319,7 +352,7 @@ moon:
     disc_dark: '#808080'
 ```
 
-## 🎮 Supported Weather Conditions
+## 🎮 Supported Weather Conditions and mixing pattern
 
 | Icon | Condition | Clouds | Sky | Rain (Drops) | Snow (Flakes) | Lightning |
 |------|-----------|--------|-----|--------------|---------------|-----------|
@@ -363,12 +396,15 @@ sun:
   aura_opacity: 0.2  # Brighten aura
 ```
 
-### Adjust Cloud Density
+### Adjust Cloud Quantity and Density
 
 ```yaml
 clouds:
   heavy: [20, 8, 5]  # More clouds, more detail
   normal: [8, 2, 1]  # Less clouds overall
+  animation:
+    min_margin: 15   # Clouds start lower
+    max_margin: 75   # Clouds stop higher
 ```
 
 ### Custom Orbit
@@ -402,15 +438,17 @@ house_angle: 270  # West facing
    - `sensor.luna_lunar_azimuth`
    - `sensor.luna_lunar_elevation`
    - `sensor.luna_lunar_phase`
+   - `sensor.luna_lunar_phase_degrees`
 
 4. Reference in card:
    ```yaml
    type: custom:meteo-card
-   location: weather.home
+   weather: weather.home
    sun_entity: sun.sun
    moon_azimuth_entity: sensor.luna_lunar_azimuth
    moon_elevation_entity: sensor.luna_lunar_elevation
    moon_phase_entity: sensor.luna_lunar_phase
+   moon_degrees_entity: sensor.luna_lunar_phase_degrees
    ```
 
 ### Using OpenWeatherMap
@@ -426,7 +464,7 @@ weather:
 Then reference:
 ```yaml
 type: custom:meteo-card
-location: weather.home_weather
+weather: weather.home_weather
 sun_entity: sun.sun
 ```
 
@@ -440,6 +478,7 @@ sun_entity: sun.sun
   - `sensor.luna_lunar_azimuth`
   - `sensor.luna_lunar_elevation`
   - `sensor.luna_lunar_phase`
+  - `sensor.luna_lunar_phase_degrees`
 
 ### Sun/Moon not displaying
 - Confirm elevation is valid (sun shows only when elevation ≥ 0°)
@@ -461,6 +500,14 @@ sun_entity: sun.sun
 - Refresh page (Ctrl+Shift+R)
 - Check browser console for errors
 
+### Clouds appearing in wrong position
+- Adjust `clouds.animation.min_margin` and `max_margin`
+- Check `random_variation` value (0-1)
+
+### Fog too visible/invisible
+- Adjust `fog.opacity_min` and `fog.opacity_max`
+- Increase/decrease `fog.blur` for harder/softer edges
+- Change `fog.height` for thicker/thinner layers
 
 ## 📜 License
 
