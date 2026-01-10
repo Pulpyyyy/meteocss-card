@@ -173,6 +173,7 @@ clouds:
 
 # Rain Configuration
 rain_intensity:
+  width: 1       #Drop size
   heavy: 200     # Downpour during storms
   normal: 100
   low: 50        # Very light rain

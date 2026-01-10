@@ -75,6 +75,7 @@ class MeteoCard extends HTMLElement {
             invert_azimuth: false,
 
             rain_intensity: {
+                width: 1,
                 heavy: 200,
                 normal: 100,
                 low: 50
@@ -254,6 +255,8 @@ class MeteoCard extends HTMLElement {
 
             this._houseAngle = (config.house_angle !== undefined) ? parseFloat(config.house_angle) : MeteoCard.DEFAULTS.house_angle;
             this._invertAzimuth = config.invert_azimuth === true;
+
+            this._rainWidth = parseFloat(config.rain_intensity?.width) || MeteoCard.DEFAULTS.rain_intensity.width;
 
             this._weatherEntityId = this._getEntity('weather', 'location');
             this._sunEntityId = this._getEntity('sun_entity', 'sun_entity');
@@ -950,7 +953,7 @@ class MeteoCard extends HTMLElement {
                 const left = Math.round(Math.random() * 10000) / 100;
                 const delay = Math.round(Math.random() * 2000) / 100;
 
-                css.content += `.${id}{position:absolute;width:1px;height:40px;background:linear-gradient(to bottom,transparent,rgba(255,255,255,0.4));left:${left}%;top:-50px;animation:rain-fall 0.6s linear infinite;animation-delay:-${delay}s;z-index:500}`;
+                css.content += `.${id}{position:absolute;width:${this._rainWidth}px;height:40px;background:linear-gradient(to bottom,transparent,rgba(255,255,255,0.4));left:${left}%;top:-50px;animation:rain-fall 0.6s linear infinite;animation-delay:-${delay}s;z-index:500}`;
                 html += `<div class="${id}"></div>`;
             }
             return html;
@@ -1051,4 +1054,4 @@ if (!customElements.get('meteo-card')) {
 window.customCards = window.customCards || [];
 window.customCards.push(CARD_CONFIG);
 
-console.info("%c MeteoCSS Card %c v1.1.1 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
+console.info("%c MeteoCSS Card %c v1.1.2 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
