@@ -323,12 +323,14 @@ class MeteoCard extends HTMLElement {
         };
     }
 
+
     _cleanup() {
         this._stopDemo();
         this._cleanupDemoEvents();
         this._domCache = {};
         this._demoListeners = [];
     }
+
 
     _startDemo() {
         this._stopDemo();
@@ -618,12 +620,12 @@ class MeteoCard extends HTMLElement {
             if (info && this.config.demo_mode) {
                 const timeStr = this._formatTime(hour);
                 info.innerHTML = `
-          <div class="line time-row"><b>Time:</b> ${timeStr} | <b>Weather:</b> ${this._safe(condition)}</div>
-          <div class="line"><b>Wind Speed:</b> ${windSpeed.toFixed(1)} km/h</div>
-          <div class="line"><b>Sun:</b> Alt: ${sunPos.elevation.toFixed(1)}° | Az: ${sunPos.azimuth.toFixed(1)}°</div>
-          <div class="line"><b>Moon:</b> Alt: ${moonPos.elevation.toFixed(1)}° | Az: ${moonPos.azimuth.toFixed(1)}°</div>
-          <div class="line"><b>Phase:</b> ${this._safe(moonPhase)} | <b>Rot:</b> ${Math.floor(moonPhaseDegrees || 0)}°</div>
-        `;
+                    <div class="line time-row"><b>Time:</b> ${timeStr} | <b>Weather:</b> ${this._safe(condition)}</div>
+                    <div class="line"><b>Wind Speed:</b> ${windSpeed.toFixed(1)} km/h</div>
+                    <div class="line"><b>Sun:</b> Alt: ${sunPos.elevation.toFixed(1)}° | Az: ${sunPos.azimuth.toFixed(1)}°</div>
+                    <div class="line"><b>Moon:</b> Alt: ${moonPos.elevation.toFixed(1)}° | Az: ${moonPos.azimuth.toFixed(1)}°</div>
+                    <div class="line"><b>Phase:</b> ${this._safe(moonPhase)} | <b>Rot:</b> ${Math.floor(moonPhaseDegrees || 0)}°</div>
+                    `;
             }
         } catch (e) {
             console.error('[MeteoCard] _updateDynamic:', e);
@@ -636,25 +638,25 @@ class MeteoCard extends HTMLElement {
 
         const keyframes = {
             base: `
-        @keyframes to-right { to { transform:translateX(130vw); } }
-        @keyframes flash { 0%,90%,94%,100%{opacity:0;} 92%{opacity:0.4;} }
-      `,
+                @keyframes to-right { to { transform:translateX(calc(100vw + 500px)); } }
+                @keyframes flash { 0%,90%,94%,100%{opacity:0;} 92%{opacity:0.4;} }
+            `,
             star: `
-        @keyframes star { 0%,100%{opacity:1;} 50%{opacity:0.2;} }
-      `,
+                @keyframes star { 0%,100%{opacity:1;} 50%{opacity:0.2;} }
+            `,
             shot: `
-        @keyframes shot { 0%{transform:rotate(45deg) translateX(-200px);opacity:0;} 1%{opacity:1;} 10%{transform:rotate(45deg) translateX(1200px);opacity:0;} 100%{opacity:0;} }
-      `,
+                @keyframes shot { 0%{transform:rotate(45deg) translateX(-200px);opacity:0;} 1%{opacity:1;} 10%{transform:rotate(45deg) translateX(1200px);opacity:0;} 100%{opacity:0;} }
+            `,
             rain: `
-        @keyframes rain-fall { to { transform:translateY(110vh) skewX(-15deg); } }
-      `,
+                @keyframes rain-fall { to { transform:translateY(110vh) skewX(-15deg); } }
+            `,
             snow: `
-        @keyframes snow-fall { 0% { transform: translateY(-10vh); } 100% { transform: translateY(110vh); } }
-        @keyframes snow-sway { 0% { margin-left: calc(var(--sway) * -1); } 100% { margin-left: var(--sway); } }
-      `,
+                @keyframes snow-fall { 0% { transform: translateY(-10vh); } 100% { transform: translateY(110vh); } }
+                @keyframes snow-sway { 0% { margin-left: calc(var(--sway) * -1); } 100% { margin-left: var(--sway); } }
+            `,
             fog: `
-        @keyframes fog-boil { 0% { transform: scale(1) translateY(0); opacity: 0.15; } 50% { opacity: 0.85; } 100% { transform: scale(1.15) translateY(-20px); opacity: 0.15; } }
-      `
+                @keyframes fog-boil { 0% { transform: scale(1) translateY(0); opacity: 0.15; } 50% { opacity: 0.85; } 100% { transform: scale(1.15) translateY(-20px); opacity: 0.15; } }
+            `
         };
 
         let requiredKeyframes = keyframes.base;
@@ -690,18 +692,12 @@ class MeteoCard extends HTMLElement {
 
     _renderAll(state) {
         try {
-            const {
-                condition,
-                isNight,
-                sunPos,
-                moonPos,
-                moonPhase,
-                rising,
-                windSpeed
-            } = state;
-            const css = {
-                content: ''
-            };
+            this.cloudCounter = 0;
+            const { condition, isNight, sunPos, moonPos, moonPhase, rising, windSpeed } = state;
+            const css = { content: '' };
+            
+            this._cleanupEvents();
+            
             const old = this.content?.querySelector('.demo-ui-container');
             if (old) old.remove();
 
@@ -719,6 +715,7 @@ class MeteoCard extends HTMLElement {
 
             this.content.innerHTML = html;
             this._cacheDOM();
+            
             if (this.config.demo_mode) this._setupEvents();
 
             if (!this.dynamicStyleSheet) {
@@ -753,12 +750,10 @@ class MeteoCard extends HTMLElement {
     }
 
     _cleanupEvents() {
-        this._demoListeners.forEach(({
-            el,
-            ev,
-            fn
-        }) => {
-            if (el) el.removeEventListener(ev, fn);
+        this._demoListeners.forEach(({ el, ev, fn }) => {
+            if (el) {
+                el.removeEventListener(ev, fn);
+            }
         });
         this._demoListeners = [];
     }
@@ -770,9 +765,9 @@ class MeteoCard extends HTMLElement {
     _setupEvents() {
         try {
             this._cleanupEvents();
+            
             const sel = this.content?.querySelector('.demo-select');
             if (sel) {
-                sel.value = this._demoForcedCondition;
                 const fn = (e) => {
                     this._demoForcedCondition = e.target.value;
                     this._initialized = false;
@@ -785,6 +780,7 @@ class MeteoCard extends HTMLElement {
                     fn
                 });
             }
+            
             const btn = this.content?.querySelector('.demo-btn-play');
             if (btn) {
                 const fn = () => {
@@ -877,18 +873,27 @@ class MeteoCard extends HTMLElement {
             let html = '';
             const baseDuration = (20 / (windSpeed + 1)) * 60;
 
+            const cloudRandomVariation = 0.3;
+            const cloudMinMargin = 5;
+            const cloudMaxMargin = 85;
+            const minSpacing = 100 / (nc + 1);
+            
             for (let i = 0; i < nc; i++) {
                 const id = `cl-${this.cloudCounter++}`;
                 const bs = 60 + Math.random() * 50;
                 const randomFactor = (Math.floor(Math.random() * 81) + 60) / 100;
                 const dur = (baseDuration * randomFactor).toFixed(2);
-                const tp = Math.round(Math.random() * 9500) / 100;
+                
+                const baseTop = (i + 1) * minSpacing;
+                const randomOffset = (Math.random() - 0.5) * minSpacing * cloudRandomVariation;
+                const tp = Math.max(cloudMinMargin, Math.min(cloudMaxMargin, baseTop + randomOffset));
+                
                 const cw = Math.round(bs * (2.5 + (pc / 4)));
                 const delay = Math.round(Math.random() * dur * 100) / 100;
                 const opacity = type === 'heavy' ? 0.9 : 0.7;
                 const zIdx = Math.floor(tp);
 
-                css.content += `.${id}{position:absolute;top:${tp}%;left:-${cw * 2}px;width:${cw}px;height:${Math.round(bs * 2.2)}px;animation:to-right ${dur}s linear infinite;animation-delay:-${delay}s;filter:url(#cloud-distort) blur(5px);opacity:${opacity};mix-blend-mode:${isNight ? 'normal' : 'screen'};z-index:${zIdx}} .${id} .puff{position:absolute;border-radius:50%;background:radial-gradient(circle at 35% 30%,rgba(${Math.min(255, bc + 45)},${Math.min(255, bc + 45)},${Math.min(255, bc + 45)},1) 0%,rgba(${bc},${bc},${bc + 10},.8) 50%,rgba(${Math.max(0, bc - 55)},${Math.max(0, bc - 55)},${Math.max(0, bc - 55 + 20)},.4) 100%);filter:blur(10px)}`;
+                css.content += `.${id}{position:absolute;top:${tp}%;left:-${cw * 2}px;width:${cw}px;height:${Math.round(bs * 2.2)}px;animation:to-right ${dur}s linear infinite;animation-delay:-${delay}s;filter:url(#cloud-distort) blur(5px);opacity:${opacity};mix-blend-mode:${isNight ? 'normal' : 'screen'};z-index:${zIdx};pointer-events:none} .${id} .puff{position:absolute;border-radius:50%;background:radial-gradient(circle at 35% 30%,rgba(${Math.min(255, bc + 45)},${Math.min(255, bc + 45)},${Math.min(255, bc + 45)},1) 0%,rgba(${bc},${bc},${bc + 10},.8) 50%,rgba(${Math.max(0, bc - 55)},${Math.max(0, bc - 55)},${Math.max(0, bc - 55 + 20)},.4) 100%);filter:blur(10px)}`;
 
                 let puffs = '';
                 for (let j = 0; j < pc; j++) {
@@ -1018,17 +1023,17 @@ class MeteoCard extends HTMLElement {
     _injectStyles() {
         const s = document.createElement('style');
         s.textContent = `
-      ha-card { width: 100% !important; height: 100% !important; min-height: 320px !important; position: relative !important; overflow: hidden !important; background: transparent !important; border: none !important; display: block !important; isolation: isolate; }
-      .layer-container { pointer-events: none; position: absolute; inset: 0; }
-      .demo-ui-container { position: absolute; top: 10px; left: 10px; z-index: 999; pointer-events: auto; display: flex; flex-direction: column; gap: 8px; }
-      .demo-top-bar { display: flex; gap: 5px; align-items: center; }
-      .demo-select { background: rgba(0,0,0,0.85); color: white; border: 1px solid rgba(255,255,255,0.2); padding: 5px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; backdrop-filter: blur(5px); }
-      .demo-btn-play { background: rgba(0,0,0,0.85); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 6px; width: 30px; height: 26px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; }
-      .demo-data { background: rgb(20, 20, 20); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 10px; color: #eee; font-family: monospace; font-size: 10px; line-height: 1.4; pointer-events: none; text-shadow: 1px 1px 1px black; min-width: 200px; min-height: 80px; box-shadow: 0 4px 15px rgba(0,0,0,0.6); }
-      .line { margin-bottom: 2px; }
-      .sun-container, .moon-container { transition: left 0.5s linear, top 0.5s linear; }
-      .lightning { position: absolute; inset: 0; background: white; opacity: 0; animation: flash 5s infinite; z-index: 998; mix-blend-mode: overlay; }
-    `;
+            ha-card { width: 100% !important; height: 100% !important; min-height: 320px !important; position: relative !important; overflow: hidden !important; background: transparent !important; border: none !important; display: block !important; isolation: isolate; }
+            .layer-container { pointer-events: none; position: absolute; inset: 0; overflow: hidden; }
+            .demo-ui-container { position: absolute; top: 10px; left: 10px; z-index: 999; pointer-events: auto; display: flex; flex-direction: column; gap: 8px; }
+            .demo-top-bar { display: flex; gap: 5px; align-items: center; }
+            .demo-select { background: rgba(0,0,0,0.85); color: white; border: 1px solid rgba(255,255,255,0.2); padding: 5px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; backdrop-filter: blur(5px); }
+            .demo-btn-play { background: rgba(0,0,0,0.85); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 6px; width: 30px; height: 26px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+            .demo-data { background: rgb(20, 20, 20); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 10px; color: #eee; font-family: monospace; font-size: 10px; line-height: 1.4; pointer-events: none; text-shadow: 1px 1px 1px black; min-width: 200px; min-height: 80px; box-shadow: 0 4px 15px rgba(0,0,0,0.6); }
+            .line { margin-bottom: 2px; }
+            .sun-container, .moon-container { transition: left 0.5s linear, top 0.5s linear; }
+            .lightning { position: absolute; inset: 0; background: white; opacity: 0; animation: flash 5s infinite; z-index: 998; mix-blend-mode: overlay; }
+            `;
         this.appendChild(s);
 
         if (!this._keyframesSheet) {
@@ -1046,4 +1051,4 @@ if (!customElements.get('meteo-card')) {
 window.customCards = window.customCards || [];
 window.customCards.push(CARD_CONFIG);
 
-console.info("%c MeteoCSS Card %c v1.1.0 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
+console.info("%c MeteoCSS Card %c v1.1.1 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
