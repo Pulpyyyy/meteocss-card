@@ -385,7 +385,18 @@ Demo automatically cycles through all weather conditions every 60 seconds.
 
 ## 🎨 Customization Tips
 
-### Fine-tune Sun Glow
+### keep it simple !
+
+You only need to replace the values you want to modify.  
+For a given category (for example, the Moon), there is no need to redefine everything—only include the fields you want to change.
+
+Example:
+```yaml
+moon:
+  disc_radius: 8  # Moon size
+```
+
+### Fine-tune Sun Glow (moon is similar)
 
 ```yaml
 sun:
