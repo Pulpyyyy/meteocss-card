@@ -385,7 +385,7 @@ Demo automatically cycles through all weather conditions every 60 seconds.
 
 ## 🎨 Customization Tips
 
-### keep it simple !
+### Keep it simple !
 
 You only need to replace the values you want to modify.  
 For a given category (for example, the Moon), there is no need to redefine everything—only include the fields you want to change.
