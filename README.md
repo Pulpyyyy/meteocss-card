@@ -68,9 +68,9 @@ or
 1. Open HACS → **Frontend**
 2. Click on **⋮** → **Custom repositories**
 3. Add: `https://github.com/Pulpyyyy/meteocss-card`
-4. Select type  **Dashboard**
+4. Select type **Dashboard**
 5. Click on `Add`
-6. Now searh for **MeteoCSS Card**
+6. Now search for **MeteoCSS Card**
 7. Install and restart Home Assistant
 
 ### Manual Installation
@@ -86,7 +86,9 @@ resources:
 
 ## 📝 Configuration
 
-### Basic demo configuration
+### 🧪 Demo Mode
+
+Enable demo mode to test without real entities:
 
 ```yaml
 type: custom:meteo-card
@@ -95,7 +97,15 @@ sun_entity: sun.sun
 demo_mode: true
 ```
 
-### Minimal Configuration
+**Demo Controls:**
+- **Dropdown** : Select a weather condition to preview
+- **Play/Pause Button** : Control time simulation
+- **Info Panel** : Shows current time, sun/moon positions, phase, altitude, azimuth
+
+Demo automatically cycles through all weather conditions every 60 seconds.
+
+
+### ✍ Minimal Configuration
 
 ```yaml
 type: custom:meteo-card
@@ -103,14 +113,16 @@ weather: weather.home
 sun_entity: sun.sun
 ```
 
-### Picture-elements example
+### 🍔 Picture-elements integration
+
+#### YAML sample
 
 ```yaml
 type: picture-elements
-image: /local/empty.png
+image: https://raw.githubusercontent.com/Pulpyyyy/meteocss-card/e0077f5a8e64dcffd1b9e07b336b56dae29d47fc/.img/empty.png
 elements:
   - type: custom:meteo-card
-    demo_mode: false
+    demo_mode: true
     weather: weather.home
     layers:
       - sky
@@ -121,14 +133,14 @@ elements:
       width: 100%
       height: 100%
   - type: image
-    image: /local/base.png
+    image: https://raw.githubusercontent.com/Pulpyyyy/meteocss-card/e0077f5a8e64dcffd1b9e07b336b56dae29d47fc/.img/base.png
     entity: weather.home
     style:
       top: 50%
       left: 50%
       width: 100%
   - type: custom:meteo-card
-    demo_mode: false
+    demo_mode: true
     weather: weather.home
     layers:
       - moon
@@ -141,7 +153,137 @@ elements:
       height: 100%
 ```
 
-### Complete YAML and default values configuration Example
+👉 How it works
+
+The core idea is to **split the meteo-card into multiple layers**, allowing you to **insert custom images between them** for more flexible visual composition.
+
+The `picture-elements` card serves as a container with a transparent base image. The first `custom:meteo-card` instance renders only the background layers (sky and background weather effects), creating the base atmospheric layer.
+
+A static image is then inserted between the two card instances. This middle layer typically contains terrain, buildings, or other decorative elements that sit behind the dynamic foreground elements.
+
+Finally, a second `custom:meteo-card` instance renders the remaining layers (moon, sun, and foreground). These elements appear on top, keeping dynamic effects like sun, moon, rain, and clouds visible and interactive in the foreground.
+
+👉 Rendering structure
+
+The layering technique provides fine-grained control over the visual hierarchy:
+
+1. **Container** – The picture-elements (empty)
+2. **Base** – The picture-elements for static background
+3. **Background weather** – Sky and background effects rendered first
+4. **Custom intermediate images** – Static visual elements positioned in the middle
+5. **Foreground dynamic elements** – Sun, moon, rain, and clouds on top
+
+This approach gives you **complete control over the rendering order** and enables you to create **highly customized and visually rich weather scenes** by composing multiple visual layers strategically.
+
+
+## Configuration Examples
+
+### 🧠 Keep it simple !
+
+You only need to replace the values you want to modify.  
+For a given category (for example, the Moon), there is no need to redefine everything—only include the fields you want to change.
+
+```yaml
+moon:
+  disc_radius: 8  # Moon size
+```
+
+
+### Cloud Animation Customization
+
+```yaml
+clouds:
+  animation:
+    min_margin: 10      # Start clouds further down
+    max_margin: 90      # Extend higher
+    random_variation: 0.5 # More variation in positions
+```
+
+### Fog Effect Customization
+
+```yaml
+fog:
+  opacity_min: 0.25     # Brighter fog at minimum
+  opacity_max: 0.95     # Denser fog at maximum
+  blur: 20              # More blur for softer effect
+  height: 200           # Taller fog layers
+```
+
+### Advanced Custom Colors Example
+
+```yaml
+type: custom:meteo-card
+weather: weather.home
+sun_entity: sun.sun
+house_angle: 45
+
+# Custom vibrant colors
+colors:
+  day:
+    normal: '#87CEEB 0%, #E0F6FF 100%'  # Sky blue
+    rainy: '#708090 0%, #2F4F4F 100%'   # Slate gray
+  night:
+    clear: '#0B1E5C 0%, #000000 100%'   # Deep navy
+
+# Custom sun
+sun:
+  disc_radius: 10
+  aura_radius: 150
+  colors:
+    disc: '#FFD700'
+    aura: '#FFA500'
+    halo: '#FFFACD'
+
+# Custom moon
+moon:
+  disc_radius: 9
+  colors:
+    disc_light: '#F0F0F0'
+    disc_dark: '#808080'
+```
+
+
+### Disable lens flare globally
+```yaml
+sun:
+  lens_flare:
+    enabled: false
+```
+
+### Customize lens flare appearance
+```yaml
+sun:
+  lens_flare:
+    enabled: true
+    halo_radius: 150          # Larger outer halo
+    glow_stdDeviation: 5      # More blur
+    flares:
+      - distance: 100
+        radius: 20
+        color: '#FF0000'      # Red reflection
+        opacity: 0.3
+      - distance: 150
+        radius: 15
+        color: '#00FF00'      # Green reflection
+        opacity: 0.2
+```
+
+## 🎮 Supported Weather Conditions and mixing pattern
+
+| Icon | Condition | Clouds | Sky | Rain (Drops) | Snow (Flakes) | Lightning |
+|------|-----------|--------|-----|--------------|---------------|-----------|
+| ☀️ | `sunny` | minimal | normal | clear | — | — |
+| ⛅ | `partlycloudy` | low | normal | — | — | — |
+| ☁️ | `cloudy` | heavy | grey | normal | — | — |
+| 💧 | `rainy` | normal | rainy | normal | low | — |
+| 🌧️ | `pouring` | heavy | dark | dark | normal | — |
+| ⛈️ | `lightning-rainy` | heavy | dark | dark | heavy | Yes |
+| ❄️ | `snowy` | normal | snowy | normal | normal | — |
+| 🌫️ | `fog` | none | grey | normal | — | — |
+| 🌙 | `clear-night` | none | — | clear | — | — |
+| — | `default` | low | normal | normal | — | — |
+
+## Complete YAML and default values configuration Example
 
 ```yaml
 type: custom:meteo-card
@@ -272,116 +414,6 @@ layers:
 demo_mode: false
 ```
 
-## Lens Flare Configuration Examples
-
-### Disable lens flare globally
-```yaml
-sun:
-  lens_flare:
-    enabled: false
-```
-
-### Customize lens flare appearance
-```yaml
-sun:
-  lens_flare:
-    enabled: true
-    halo_radius: 150          # Larger outer halo
-    glow_stdDeviation: 5      # More blur
-    flares:
-      - distance: 100
-        radius: 20
-        color: '#FF0000'      # Red reflection
-        opacity: 0.3
-      - distance: 150
-        radius: 15
-        color: '#00FF00'      # Green reflection
-        opacity: 0.2
-```
-
-### Cloud Animation Customization
-
-```yaml
-clouds:
-  animation:
-    min_margin: 10      # Start clouds further down
-    max_margin: 90      # Extend higher
-    random_variation: 0.5 # More variation in positions
-```
-
-### Fog Effect Customization
-
-```yaml
-fog:
-  opacity_min: 0.25     # Brighter fog at minimum
-  opacity_max: 0.95     # Denser fog at maximum
-  blur: 20              # More blur for softer effect
-  height: 200           # Taller fog layers
-```
-
-### Advanced Custom Colors Example
-
-```yaml
-type: custom:meteo-card
-weather: weather.home
-sun_entity: sun.sun
-house_angle: 45
-
-# Custom vibrant colors
-colors:
-  day:
-    normal: '#87CEEB 0%, #E0F6FF 100%'  # Sky blue
-    rainy: '#708090 0%, #2F4F4F 100%'   # Slate gray
-  night:
-    clear: '#0B1E5C 0%, #000000 100%'   # Deep navy
-
-# Custom sun
-sun:
-  disc_radius: 10
-  aura_radius: 150
-  colors:
-    disc: '#FFD700'
-    aura: '#FFA500'
-    halo: '#FFFACD'
-
-# Custom moon
-moon:
-  disc_radius: 9
-  colors:
-    disc_light: '#F0F0F0'
-    disc_dark: '#808080'
-```
-
-## 🎮 Supported Weather Conditions and mixing pattern
-
-| Icon | Condition | Clouds | Sky | Rain (Drops) | Snow (Flakes) | Lightning |
-|------|-----------|--------|-----|--------------|---------------|-----------|
-| ☀️ | `sunny` | minimal | normal | clear | — | — |
-| ⛅ | `partlycloudy` | low | normal | — | — | — |
-| ☁️ | `cloudy` | heavy | grey | normal | — | — |
-| 💧 | `rainy` | normal | rainy | normal | low | — |
-| 🌧️ | `pouring` | heavy | dark | dark | normal | — |
-| ⛈️ | `lightning-rainy` | heavy | dark | dark | heavy | Yes |
-| ❄️ | `snowy` | normal | snowy | normal | normal | — |
-| 🌫️ | `fog` | none | grey | normal | — | — |
-| 🌙 | `clear-night` | none | — | clear | — | — |
-| — | `default` | low | normal | normal | — | — |
-
-## 🧪 Demo Mode
-
-Enable demo mode to test without real entities:
-
-```yaml
-type: custom:meteo-card
-demo_mode: true
-```
-
-**Demo Controls:**
-- **Dropdown** : Select a weather condition to preview
-- **Play/Pause Button** : Control time simulation
-- **Info Panel** : Shows current time, sun/moon positions, phase, altitude, azimuth
-
-Demo automatically cycles through all weather conditions every 60 seconds.
 
 ## 🎨 Customization Tips
 
