@@ -15,13 +15,14 @@ https://github.com/user-attachments/assets/07463969-425f-423e-a758-a8abea28b8b6
 
 - 🌞 **Realistic Sun** : Azimuth/elevation position tracking with aura and halo
 - 🌙 **Detailed Moon** : Complete lunar phases with 3D texture
-- ☁️ **Animated Clouds** : Multiple coverage levels with real-time distortion, based on speed wind
+- ☁️ **Animated Clouds** : Multiple coverage levels with real-time distortion, based on wind speed
 - 🌧️ **Weather Effects** : Rain, snow, fog with smooth animations
 - ⚡ **Extreme Conditions** : Realistic lightning for storms
 - 🌅 **Adaptive Gradients** : Sky changes with conditions and time
 - 🌟 **Twinkling Stars** : Night display with shooting stars
 - 🎛️ **Demo Mode** : Time simulator with weather conditions
 - 🎨 **Fully Customizable** : Colors, radii, orbits, angles
+- 🔄 **Multi-Card Sync** : Automatic synchronization of multiple cards on the same screen
 
 ## 📋 Requirements
 
@@ -77,7 +78,7 @@ or
 
 1. Create `www/meteo-card/` folder in your config directory
 2. Download `meteocss-card.js` into this folder
-3. Add to `ui-lovelace.yaml` :
+3. Add to `ui-lovelace.yaml`:
 ```yaml
 resources:
   - url: /local/meteo-card/meteocss-card.js
@@ -86,9 +87,143 @@ resources:
 
 ## 📝 Configuration
 
+### 🔄 Multi-Card Synchronization (Singleton System)
+
+The singleton system allows multiple MeteoCSS cards on the same screen to share the same data and animations, creating a cohesive and optimized visual experience.
+
+#### How It Works
+
+**Core Concept**: A shared singleton object (stored in global memory in `MeteoSingletons`) acts as a "single source of truth" for all cards with the same ID. This guarantees that if you have three cards on a screen, the sun, moon, and rain are perfectly synchronized.
+
+**Master/Slave Election**:
+- One card per singleton group is elected as "Master"
+- The Master performs all heavy calculations (sun/moon positions, transitions, weather effects)
+- Other cards (Slaves) simply listen and reflect the Master's data
+- This **saves browser resources** and ensures perfect synchronization
+
+**Creation and Initialization**:
+1. Each card receives a `singleton_id` (default: auto-generated unique ID)
+2. When the first card with this ID loads, the singleton is created
+3. Subsequent cards with the same ID attach to the existing singleton
+4. Master election happens automatically
+
+**Shared Data**:
+- Sun position (azimuth, elevation)
+- Moon position (azimuth, elevation, phase, phase degrees)
+- Current weather condition
+- Wind speed
+- Demo state (running, paused, stopped)
+- Simulated time (demo mode only)
+- Cloud counts (background and foreground)
+
+#### Cloud Distribution System
+
+The cloud distribution system uses a **background ratio** to intelligently split clouds between background and foreground layers, creating depth and visual layering.
+
+**How Cloud Ratio Works**:
+
+Each weather condition has a `background_ratio` value (0.0 to 1.0) that determines the proportion of clouds rendered in the background layer:
+
+- `background_ratio: 0.9` → 90% of clouds in background, 10% in foreground
+- `background_ratio: 0.5` → 50% of clouds in background, 50% in foreground
+- `background_ratio: 0.3` → 30% of clouds in background, 70% in foreground
+
+**Practical Example**:
+
+For `cloudy` condition with `clouds: heavy` (15 total clouds) and `background_ratio: 0.6`:
+- Background clouds: 15 × 0.6 = 9 clouds
+- Foreground clouds: 15 × 0.4 = 6 clouds
+
+Result: Denser cloud coverage in the back, fewer clouds in front for a more dynamic, layered look.
+
+**Default Ratios by Condition**:
+
+| Condition | Background Ratio | Purpose |
+|-----------|------------------|---------|
+| `sunny` | 0.9 | Minimal clouds mostly in background |
+| `partlycloudy` | 0.8 | Few clouds mostly in background |
+| `cloudy` | 0.6 | Balanced cloud distribution |
+| `rainy` | 0.7 | More background clouds for depth |
+| `pouring` | 0.3 | Heavy foreground clouds (more dramatic) |
+| `lightning-rainy` | 0.3 | Heavy foreground for storm effect |
+| `snowy` | 0.5 | Even distribution |
+| `fog` | 0.3 | Fog in foreground, minimal background |
+| `clear-night` | 0.5 | Minimal clouds, balanced if any |
+
+**Custom Cloud Ratios**:
+
+You can customize the background ratio for any condition:
+
+```yaml
+type: custom:meteo-card
+weather: weather.home
+sun_entity: sun.sun
+conditions:
+  cloudy:
+    clouds: heavy
+    background_ratio: 0.4  # More dramatic foreground clouds
+    day_sky: grey
+    night_sky: normal
+```
+
+**Singleton Data Tracking**:
+
+The singleton stores:
+- `bgCloudCount` : Number of clouds rendered in background layer
+- `fgCloudCount` : Number of clouds rendered in foreground layer
+
+These are displayed in the demo UI info panel for debugging and validation.
+
+#### Practical Usage
+
+**To synchronize cards**: use the same `singleton_id`
+
+```yaml
+# Card 1 - Background layers
+type: custom:meteo-card
+weather: weather.home
+sun_entity: sun.sun
+singleton_id: "main_sync"
+layers:
+  - sky
+  - background
+
+---
+
+# Card 2 - Foreground layers (same ID for sync)
+type: custom:meteo-card
+weather: weather.home
+sun_entity: sun.sun
+singleton_id: "main_sync"
+layers:
+  - sun
+  - moon
+  - foreground
+```
+
+**To keep cards independent**: use different `singleton_id` values
+
+```yaml
+# Card 1 - Independent
+type: custom:meteo-card
+weather: weather.home
+sun_entity: sun.sun
+singleton_id: "left_card"
+
+# Card 2 - Independent
+type: custom:meteo-card
+weather: weather.home
+sun_entity: sun.sun
+singleton_id: "right_card"
+```
+
+**Default behavior** (without `singleton_id` specified):
+- Each card receives a unique auto-generated ID
+- Cards are independent of each other
+
 ### 🧪 Demo Mode
 
-Enable demo mode to test without real entities:
+Enable demo mode to test the card without real weather entities. Demo mode is particularly useful as a separate layer in a `picture-elements` setup.
 
 ```yaml
 type: custom:meteo-card
@@ -99,11 +234,15 @@ demo_mode: true
 
 **Demo Controls:**
 - **Dropdown** : Select a weather condition to preview
-- **Play/Pause Button** : Control time simulation
-- **Info Panel** : Shows current time, sun/moon positions, phase, altitude, azimuth
+- **Play/Pause Button** : Control time simulation (speeds up 60 seconds = 1 full day cycle)
+- **Stop Button** : Return to real weather data
+- **Info Panel** : Shows current simulated time, sun/moon positions, phase, altitude, azimuth, cloud counts, and card statistics
 
-Demo automatically cycles through all weather conditions every 60 seconds.
-
+**How it works:**
+Demo mode automatically cycles through all weather conditions. The demo UI appears in the top-left corner with:
+- Real-time statistics display
+- Playback controls for the time simulation
+- Condition selector for testing specific weather states
 
 ### ✍ Minimal Configuration
 
@@ -113,17 +252,18 @@ weather: weather.home
 sun_entity: sun.sun
 ```
 
-### 🍔 Picture-elements integration
+### 🍔 Picture-Elements Integration
 
-#### YAML sample
+#### YAML Sample
 
 ```yaml
 type: picture-elements
 image: https://raw.githubusercontent.com/Pulpyyyy/meteocss-card/e0077f5a8e64dcffd1b9e07b336b56dae29d47fc/.img/empty.png
 elements:
   - type: custom:meteo-card
-    demo_mode: true
     weather: weather.home
+    sun_entity: sun.sun
+    singleton_id: "main_sync"
     layers:
       - sky
       - background
@@ -140,11 +280,12 @@ elements:
       left: 50%
       width: 100%
   - type: custom:meteo-card
-    demo_mode: true
     weather: weather.home
+    sun_entity: sun.sun
+    singleton_id: "main_sync"
     layers:
-      - moon
       - sun
+      - moon
       - foreground
     style:
       top: 50%
@@ -153,41 +294,56 @@ elements:
       height: 100%
 ```
 
-👉 How it works
+#### How It Works
 
 The core idea is to **split the meteo-card into multiple layers**, allowing you to **insert custom images between them** for more flexible visual composition.
 
-The `picture-elements` card serves as a container with a transparent base image. The first `custom:meteo-card` instance renders only the background layers (sky and background weather effects), creating the base atmospheric layer.
+The `picture-elements` card serves as a container with a transparent base image. The first `custom:meteo-card` instance renders only the background layers (sky and background weather effects), creating the base atmospheric layer. **Important**: use the same `singleton_id` to synchronize the layers.
 
 A static image is then inserted between the two card instances. This middle layer typically contains terrain, buildings, or other decorative elements that sit behind the dynamic foreground elements.
 
-Finally, a second `custom:meteo-card` instance renders the remaining layers (moon, sun, and foreground). These elements appear on top, keeping dynamic effects like sun, moon, rain, and clouds visible and interactive in the foreground.
+Finally, a second `custom:meteo-card` instance renders the remaining layers (sun, moon, and foreground). These elements appear on top, keeping dynamic effects like sun, moon, rain, and clouds visible and interactive in the foreground.
 
-👉 Rendering structure
+**Cloud Distribution Across Layers**:
+
+When using picture-elements with multiple cards, the background ratio automatically splits clouds intelligently:
+
+```
+Card 1 (Background layers):
+├─ Sky
+└─ Background clouds (e.g., 60% of total for cloudy condition)
+    └─ Static image layer (terrain, buildings)
+
+Card 2 (Foreground layers):
+├─ Sun
+├─ Moon
+└─ Foreground clouds (e.g., 40% of total for cloudy condition)
+    └─ Rain/Snow/Effects
+```
+
+The singleton ensures that both cards receive the same `background_ratio` calculation, so the cloud distribution is consistent and visually coherent across layers.
+
+#### Rendering Structure
 
 The layering technique provides fine-grained control over the visual hierarchy:
 
-1. **Container** – The picture-elements (empty)
-2. **Base** – The picture-elements for static background
-3. **Background weather** – Sky and background effects rendered first
-4. **Custom intermediate images** – Static visual elements positioned in the middle
-5. **Foreground dynamic elements** – Sun, moon, rain, and clouds on top
+1. **Container** – The picture-elements (transparent)
+2. **Background weather** – Sky and background effects rendered first
+3. **Custom intermediate images** – Static visual elements positioned in the middle
+4. **Foreground dynamic elements** – Sun, moon, rain, and clouds on top
 
 This approach gives you **complete control over the rendering order** and enables you to create **highly customized and visually rich weather scenes** by composing multiple visual layers strategically.
 
-
 ## Configuration Examples
 
-### 🧠 Keep it simple !
+### Keep It Simple!
 
-You only need to replace the values you want to modify.  
-For a given category (for example, the Moon), there is no need to redefine everything—only include the fields you want to change.
+You only need to replace the values you want to modify. For a given category (for example, the Moon), there is no need to redefine everything—only include the fields you want to change.
 
 ```yaml
 moon:
   disc_radius: 8  # Moon size
 ```
-
 
 ### Cloud Animation Customization
 
@@ -242,15 +398,16 @@ moon:
     disc_dark: '#808080'
 ```
 
+### Disable Lens Flare Globally
 
-### Disable lens flare globally
 ```yaml
 sun:
   lens_flare:
     enabled: false
 ```
 
-### Customize lens flare appearance
+### Customize Lens Flare Appearance
+
 ```yaml
 sun:
   lens_flare:
@@ -268,54 +425,80 @@ sun:
         opacity: 0.2
 ```
 
-## 🎮 Supported Weather Conditions and mixing pattern
+### Cloud Layer Distribution (Background Ratio)
 
-| Icon | Condition | Clouds | Sky | Rain (Drops) | Snow (Flakes) | Lightning |
-|------|-----------|--------|-----|--------------|---------------|-----------|
-| ☀️ | `sunny` | minimal | normal | clear | — | — |
-| ⛅ | `partlycloudy` | low | normal | — | — | — |
-| ☁️ | `cloudy` | heavy | grey | normal | — | — |
-| 💧 | `rainy` | normal | rainy | normal | low | — |
-| 🌧️ | `pouring` | heavy | dark | dark | normal | — |
-| ⛈️ | `lightning-rainy` | heavy | dark | dark | heavy | Yes |
-| ❄️ | `snowy` | normal | snowy | normal | normal | — |
-| 🌫️ | `fog` | none | grey | normal | — | — |
-| 🌙 | `clear-night` | none | — | clear | — | — |
-| — | `default` | low | normal | normal | — | — |
+Customize how clouds are distributed between background and foreground layers:
 
-## Complete YAML and default values configuration Example
+```yaml
+type: custom:meteo-card
+weather: weather.home
+sun_entity: sun.sun
+conditions:
+  cloudy:
+    background_ratio: 0.8  # 80% background, 20% foreground (more subtle)
+  pouring:
+    background_ratio: 0.2  # 20% background, 80% foreground (more dramatic)
+  rainy:
+    background_ratio: 0.7  # Balanced with emphasis on depth
+```
+
+This is especially useful in picture-elements layouts where you want fine control over cloud placement relative to custom images.
+
+## 🎮 Supported Weather Conditions
+
+| Icon | Condition | Clouds | BG Ratio | Sky | Rain | Snow | Lightning |
+|------|-----------|--------|----------|-----|------|------|-----------|
+| ☀️ | `sunny` | minimal | 0.9 | normal | — | — | — |
+| ⛅ | `partlycloudy` | low | 0.8 | normal | — | — | — |
+| ☁️ | `cloudy` | heavy | 0.6 | grey | — | — | — |
+| 💧 | `rainy` | normal | 0.7 | rainy | normal | low | — |
+| 🌧️ | `pouring` | heavy | 0.3 | dark | heavy | normal | — |
+| ⛈️ | `lightning-rainy` | heavy | 0.3 | dark | heavy | heavy | Yes |
+| ❄️ | `snowy` | normal | 0.5 | snowy | normal | normal | — |
+| 🌫️ | `fog` | none | 0.3 | grey | — | — | — |
+| 🌙 | `clear-night` | none | 0.5 | clear | — | — | — |
+| — | `default` | low | 0.5 | normal | — | — | — |
+
+**BG Ratio Explanation**: The proportion of clouds rendered in the background layer (0.0 = all foreground, 1.0 = all background). This creates visual depth when using multiple cards or picture-elements.
+
+## Complete Configuration Reference (All Default Values)
 
 ```yaml
 type: custom:meteo-card
 
-# Entity References
-weather: weather.home                                         # Weather entity
-sun_entity: sun.sun                                            # Sun position entity
-moon_azimuth_entity: sensor.luna_lunar_azimuth                 # Moon azimuth (optional)
-moon_elevation_entity: sensor.luna_lunar_elevation             # Moon elevation (optional)
-moon_phase_entity: sensor.luna_lunar_phase                     # Moon phase (optional)
-moon_degrees_entity: sensor.luna_lunar_phase_degrees           # Moon phase rotation angle (optional)
+# --- Entity References ---
+weather: weather.home                   # Main weather entity
+sun_entity: sun.sun                     # Sun position entity
+moon_azimuth_entity: sensor.luna_lunar_azimuth       # Optional
+moon_elevation_entity: sensor.luna_lunar_elevation   # Optional
+moon_phase_entity: sensor.luna_lunar_phase           # Optional
+moon_degrees_entity: sensor.luna_lunar_phase_degrees # Optional
 
-# Orbit Configuration (percentage of container)
+# --- General Settings ---
+house_angle: 25                         # Scene rotation offset (0-360°)
+invert_azimuth: false                   # Add 180° to azimuth if view is inverted
+singleton_id: "UUID"                    # Unique ID for syncing multiple cards
+demo_mode: false                        # Enable demo/simulator mode
+
+# --- Orbit Configuration ---
+# Coordinates and radii expressed as % of card size
 orbit:
-  rx: 45      # Horizontal radius (controls the width of the elliptical path)
-  ry: 40      # Vertical radius (controls the height of the elliptical path)
-  cx: 50      # Horizontal center (offsets the entire orbit left or right, 50 = middle)
-  cy: 50      # Vertical center (offsets the entire orbit up or down, 50 = middle)
-  tilt: 0     # Orbit tilt/rotation in degrees (e.g., 15 for a diagonal path)
+  rx: 45      # Horizontal radius (width of the ellipse)
+  ry: 40      # Vertical radius (height of the ellipse)
+  cx: 50      # Horizontal center position
+  cy: 50      # Vertical center position
+  tilt: 0     # Orbit rotation/tilt in degrees
 
-# House Orientation
-house_angle: 25           # Angle offset for your location (degrees, 0-360)
-invert_azimuth: false     # Invert azimuth direction if needed
-
-# Sun Configuration
+# --- Sun Configuration ---
 sun:
-  disc_radius: 8          # Size of sun disc (SVG units)
-  halo_radius: 50         # Inner halo radius
-  aura_radius: 130        # Outer aura radius
-  aura_opacity: 0.15      # Aura transparency (0-1)
-  halo_opacity: 0.4       # Halo transparency (0-1)
-  zoom: 1.0               # Scale multiplier
+  disc_radius: 8            # Radius of the sun disk
+  halo_radius: 50           # Inner glow radius
+  aura_radius: 130          # Large atmospheric glow radius
+  halo_opacity: 0.4         # Halo transparency (0 to 1)
+  aura_opacity: 0.15        # Aura transparency (0 to 1)
+  zoom: 1.0                 # Scale multiplier for the whole sun group
+  sunrise_limits: [0, 5]    # Elevation angles [start, end] for sunrise transition
+  sunset_limits: [0, 5]     # Elevation angles [start, end] for sunset transition
   colors:
     aura: '#FFCC00'       # Outer glow color
     halo: '#FFFFFF'       # Middle halo color
@@ -343,11 +526,11 @@ sun:
         color: '#AAFFFF'
         opacity: 0.1
 
-# Moon Configuration
+# --- Moon Configuration ---
 moon:
   disc_radius: 8          # Moon size
-  halo_radius: 35         # Inner halo
-  aura_radius: 80         # Outer aura
+  halo_radius: 35         # Inner halo radius
+  aura_radius: 80         # Outer aura radius
   aura_opacity: 0.1       # Aura transparency
   halo_opacity: 0.2       # Halo transparency
   zoom: 1.0               # Scale multiplier
@@ -356,10 +539,11 @@ moon:
     disc_light: '#FDFDFD' # Bright side of moon
     disc_dark: '#9595A5'  # Dark side of moon
 
-# Sky Colors (as radial-gradient : https://gradients.app/en/newradial )
+# --- Sky Colors (Radial Gradients) ---
+# Syntax: '#color stop%, #color stop%' see https://gradients.app/en/newradial
 colors:
   night:
-    clear: '#25259C 0%, #2A2A60 40%, #0F0344 100%'     # Clear night gradient
+    clear: '#25259C 0%, #2A2A60 40%, #0F0344 100%'     # Clear night
     normal: '#272762 0%, #302C2C 100%'                  # Regular night
     dark: '#0E0E54 0%, #000000 100%'                    # Dark night (storms)
   day:
@@ -368,11 +552,12 @@ colors:
     rainy: '#B9DFFF 0%, #C1CBD0 60%, #91A6B0 100%'     # Rainy day
     dark: '#B9DFFF 0%, #2F4F4F 60%, #708090 100%'      # Dark day
     snowy: '#B0E2FF 0%, #AAAAAA 60%, #D3D3D3 100%'     # Snowy day
-    grey: '#B4C4CB 0%, #A4A6A8 60%, #94A9C7 100%'      # Overcast
+    grey: '#B4C4CB 0%, #A4A6A8 60%, #94A9C7 100%'    # Overcast
   sunrise: '#FFF5C3 0%, #FFD966 10%, #FFA64D 30%, #FF7F50 50%, #5D0000 80%, #002340 100%'
   sunset: '#FEFEFFCC 0%, #ECFF00 10%, #FD3229 25%, #F30000 45%, #5D0000 75%, #001A33 100%'
 
-# Cloud Configuration [count, puffs, gradation]
+# --- Cloud Configuration ---
+# Arrays format: [count, puffs, gradation]
 clouds:
   heavy: [15, 5, 4]      # Heavy cloudiness
   normal: [10, 3, 2]     # Regular clouds
@@ -382,53 +567,48 @@ clouds:
   animation:             # Cloud animation settings
     min_margin: 5        # Minimum margin from top (%)
     max_margin: 85       # Maximum margin from top (%)
-    random_variation: 0.3 # Random position variation factor
+    random_variation: 0.3 # Random position variation factor (0-1)
 
-# Rain Configuration
+# --- Weather Effects Intensity ---
 rain_intensity:
-  width: 1       # Drop size
+  width: 1       # Drop size (px)
   heavy: 200     # Downpour during storms
   normal: 100    # Regular rain
   low: 50        # Very light rain
 
-# Snow Configuration
 snow_intensity:
-  normal: 80
+  normal: 80     # Standard snowflake count
 
-# Fog Configuration
 fog:
+  count: 4               # Number of fog layers
   opacity_min: 0.15      # Minimum fog opacity (0-1)
   opacity_max: 0.85      # Maximum fog opacity (0-1)
-  blur: 15               # Blur effect strength (px)
-  height: 180            # Fog layer height (px)
+  blur: 15               # Blur filter strength (px)
+  height: 180            # Height of the fog bank (px)
 
-# Render Layers (order matters for z-index)
+# --- Display Layers ---
+# Order defines the Z-Index (rendering stack)
 layers:
   - sky
   - sun
   - moon
   - background
   - foreground
-
-# Demo Mode (simulator without real entities)
-demo_mode: false
 ```
-
 
 ## 🎨 Customization Tips
 
-### Keep it simple !
+### Keep It Simple!
 
-You only need to replace the values you want to modify.  
-For a given category (for example, the Moon), there is no need to redefine everything—only include the fields you want to change.
+You only need to replace the values you want to modify. For a given category (for example, the Moon), there is no need to redefine everything—only include the fields you want to change.
 
 Example:
 ```yaml
 moon:
-  disc_radius: 8  # Moon size
+  disc_radius: 8  # Moon size only - other values use defaults
 ```
 
-### Fine-tune Sun Glow (moon is similar)
+### Fine-tune Sun Glow
 
 ```yaml
 sun:
@@ -504,7 +684,7 @@ weather:
     name: home_weather
 ```
 
-Then reference:
+Then reference in card:
 ```yaml
 type: custom:meteo-card
 weather: weather.home_weather
@@ -513,7 +693,7 @@ sun_entity: sun.sun
 
 ## 🐛 Troubleshooting
 
-### Entities not found
+### Entities Not Found
 - Verify sun integration is enabled (add `sun:` to configuration.yaml)
 - Install Luna integration from [okkine/HA-Luna](https://github.com/okkine/HA-Luna)
 - Check entity names in Developer Tools → States
@@ -523,34 +703,44 @@ sun_entity: sun.sun
   - `sensor.luna_lunar_phase`
   - `sensor.luna_lunar_phase_degrees`
 
-### Sun/Moon not displaying
+### Sun/Moon Not Displaying
 - Confirm elevation is valid (sun shows only when elevation ≥ 0°)
 - Check moon entities are correct
 - Verify azimuth values are 0-360°
 
-### Animations are stuttering
-- Reduce number of rain/snow particles
+### Animations Are Stuttering
+- Reduce number of rain/snow particles (rain_intensity and snow_intensity)
 - Decrease cloud count
 - Check browser performance (F12 → Performance)
 
-### Colors look wrong
+### Colors Look Wrong
 - Use valid hex color format (#RRGGBB)
 - Verify gradient syntax: '#color 0%, #color 100%'
 - Test with demo mode first
 
-### Demo mode not working
-- Ensure demo_mode: true is set
+### Demo Mode Not Working
+- Ensure `demo_mode: true` is set in configuration
 - Refresh page (Ctrl+Shift+R)
 - Check browser console for errors
 
-### Clouds appearing in wrong position
+### Clouds Appearing in Wrong Position
 - Adjust `clouds.animation.min_margin` and `max_margin`
-- Check `random_variation` value (0-1)
+- Check `random_variation` value (0-1, where 0 = no variation, 1 = maximum)
 
-### Fog too visible/invisible
-- Adjust `fog.opacity_min` and `fog.opacity_max`
+### Fog Too Visible/Invisible
+- Adjust `fog.opacity_min` and `fog.opacity_max` (0-1 range)
 - Increase/decrease `fog.blur` for harder/softer edges
 - Change `fog.height` for thicker/thinner layers
+
+### Cards Not Synchronizing
+- Ensure both cards have the same `singleton_id`
+- Check browser console for errors
+- Verify both cards are on the same screen/dashboard
+
+### Demo Mode Controls Not Appearing
+- Ensure `demo_mode: true` is in the first card configuration
+- Check that at least one card has demo_mode enabled
+- Browser console should show no errors
 
 ## 📜 License
 
@@ -563,11 +753,3 @@ Contributions are welcome! Feel free to:
 - Suggest improvements
 - Submit pull requests
 - Share custom configurations
-
-## ⭐ Support
-
-If you like this card, please consider giving it a ⭐ on GitHub!
-
----
-
-**Made with ❤️ for the Home Assistant community**
