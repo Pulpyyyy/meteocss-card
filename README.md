@@ -229,7 +229,13 @@ Enable demo mode to test the card without real weather entities. Demo mode is pa
 type: custom:meteo-card
 weather: weather.home
 sun_entity: sun.sun
-demo_mode: true
+layers:
+  - sky
+  - sun
+  - moon
+  - background
+  - foreground
+  - demo_mode
 ```
 
 **Demo Controls:**
@@ -477,8 +483,7 @@ moon_degrees_entity: sensor.luna_lunar_phase_degrees # Optional
 # --- General Settings ---
 house_angle: 25                         # Scene rotation offset (0-360°)
 invert_azimuth: false                   # Add 180° to azimuth if view is inverted
-singleton_id: "UUID"                    # Unique ID for syncing multiple cards
-demo_mode: false                        # Enable demo/simulator mode
+singleton_id: "UUID"                    # Unique ID for syncing multiple cards              
 
 # --- Orbit Configuration ---
 # Coordinates and radii expressed as % of card size
@@ -594,6 +599,7 @@ layers:
   - moon
   - background
   - foreground
+  - demo_mode # Enable demo/simulator mode
 ```
 
 ## 🎨 Customization Tips
@@ -719,7 +725,7 @@ sun_entity: sun.sun
 - Test with demo mode first
 
 ### Demo Mode Not Working
-- Ensure `demo_mode: true` is set in configuration
+- Ensure layer `demo_mode` is set in configuration
 - Refresh page (Ctrl+Shift+R)
 - Check browser console for errors
 
@@ -736,11 +742,6 @@ sun_entity: sun.sun
 - Ensure both cards have the same `singleton_id`
 - Check browser console for errors
 - Verify both cards are on the same screen/dashboard
-
-### Demo Mode Controls Not Appearing
-- Ensure `demo_mode: true` is in the first card configuration
-- Check that at least one card has demo_mode enabled
-- Browser console should show no errors
 
 ## 📜 License
 
