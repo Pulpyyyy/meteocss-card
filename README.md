@@ -595,9 +595,9 @@ fog:
 # Order defines the Z-Index (rendering stack)
 layers:
   - sky
+  - background
   - sun
   - moon
-  - background
   - foreground
   - demo_mode # Enable demo/simulator mode
 ```
