@@ -1,4 +1,4 @@
-console.info("%c 🙂 MeteoCSS Card %c v2.0.0 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
+console.info("%c 🙂 MeteoCSS Card %c v2.0.1 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
 
 const CARD_CONFIG = {
     type: 'meteo-card',
@@ -33,19 +33,14 @@ class SingletonManager {
             MeteoSingletons[singletonId] = {
                 demoTimeOffset: 0,
                 demoState: 'stopped',
-                demoResetRequested: false,
                 lastUpdateTimestamp: Date.now(),
                 demoScenario: [],
-                lastCycleId: -1,
                 demoForcedCondition: 'auto',
                 demoUIMaster: null,
-                demoUIElement: null,
                 actualState: null,
-                masterLock: null,
                 bgCloudCount: 0,
                 fgCloudCount: 0,
                 registeredCards: new Set(),
-                lastPauseState: false,
                 dataMaster: null,
                 realDataReady: false,
                 realDataTimestamp: null
@@ -63,7 +58,6 @@ class SingletonManager {
         const state = this.getSingleton(singletonId);
         state.demoState = 'running';
         state.lastUpdateTimestamp = Date.now();
-        state.masterLock = null;
         if (!state.demoTimeOffset || state.demoTimeOffset === 0) {
             state.demoTimeOffset = Date.now();
         }
@@ -81,20 +75,23 @@ class SingletonManager {
         }
     }
 
-    static isResetRequested(singletonId) {
-        const singleton = this.getSingleton(singletonId);
-        return singleton.demoResetRequested;
-    }
-
     static isMaster(singletonId, cardId) {
         const singleton = this.getSingleton(singletonId);
-        if (singleton.demoUIMaster === cardId) return true;
-
-        if (!singleton.demoUIMaster || !document.getElementById(singleton.demoUIMaster)) {
-            singleton.demoUIMaster = cardId;
-            singleton.masterLock = Date.now();
+        
+        if (singleton.demoUIMaster === cardId) {
             return true;
         }
+
+        const currentMaster = singleton.demoUIMaster;
+        const masterExists = currentMaster && document.getElementById(currentMaster);
+
+        if (!masterExists) {
+            if (singleton.demoUIMaster === currentMaster) {
+                singleton.demoUIMaster = cardId;
+                return true;
+            }
+        }
+
         return singleton.demoUIMaster === cardId;
     }
 
@@ -106,18 +103,21 @@ class SingletonManager {
             return true;
         }
         
-        if (!singleton.dataMaster) {
-            singleton.dataMaster = cardId;
-            return true;
+        const currentDataMaster = singleton.dataMaster;
+
+        if (!currentDataMaster) {
+            if (!singleton.dataMaster) {
+                singleton.dataMaster = cardId;
+                return true;
+            }
+        } else if (!document.getElementById(currentDataMaster)) {
+            if (singleton.dataMaster === currentDataMaster) {
+                singleton.dataMaster = cardId;
+                return true;
+            }
         }
         
-        if (!document.getElementById(singleton.dataMaster)) {
-            singleton.dataMaster = cardId;
-            return true;
-        }
-        
-        const isMaster = singleton.dataMaster === cardId;
-        return isMaster;
+        return singleton.dataMaster === cardId;
     }
 
     static getDataMaster(singletonId) {
@@ -143,16 +143,19 @@ class SingletonManager {
     static unregisterCard(singletonId, cardId) {
         const singleton = this.getSingleton(singletonId);
         singleton.registeredCards.delete(cardId);
+        
+        if (singleton.demoUIMaster === cardId) {
+            singleton.demoUIMaster = null;
+        }
+        
+        if (singleton.dataMaster === cardId) {
+            singleton.dataMaster = null;
+        }
     }
 
     static getCardCount(singletonId) {
         const singleton = this.getSingleton(singletonId);
         return singleton.registeredCards.size;
-    }
-
-    static getMasterCount(singletonId) {
-        const singleton = this.getSingleton(singletonId);
-        return singleton.demoUIMaster ? 1 : 0;
     }
 
     static getSlaveCount(singletonId) {
@@ -226,36 +229,94 @@ class DemoEngine {
     }
 
     _getCoords(azimuth, elevation) {
+        return MeteoCoordsCalculator.getCoords(azimuth, elevation, this.config);
+    }
+}
+
+class MeteoCoordsCalculator {
+    static getCoords(azimuth, elevation, config) {
         try {
             const az = parseFloat(azimuth);
             const el = parseFloat(elevation);
 
             if (isNaN(az) || isNaN(el)) {
-                return { left: 50, top: 50, elevation: 0, azimuth: 0 };
+                console.warn('[MeteoCoordsCalculator] Invalid coordinates:', { azimuth, elevation });
+                return this._defaultPosition();
             }
 
-            const o = this.config.get('orbit');
-            const houseAngle = this.config.get('house_angle');
-            const invertAzimuth = this.config.get('invert_azimuth');
+            const orbit = this._getOrbit(config);
+            const houseAngle = this._getHouseAngle(config);
+            const invertAzimuth = this._getInvertAzimuth(config);
 
-            let finalAz = invertAzimuth ? (az + 180) % 360 : az;
-            const rad = (finalAz - houseAngle) * Math.PI / 180;
-            const x0 = o.rx * Math.sin(rad);
-            const y0 = -o.ry * Math.cos(rad);
-            const tiltRad = o.tilt * Math.PI / 180;
-            const xRot = x0 * Math.cos(tiltRad) - y0 * Math.sin(tiltRad);
-            const yRot = x0 * Math.sin(tiltRad) + y0 * Math.cos(tiltRad);
+            return this._calculatePosition(az, el, orbit, houseAngle, invertAzimuth);
 
-            return {
-                left: Math.max(0, Math.min(100, o.cx + xRot)),
-                top: Math.max(0, Math.min(100, o.cy + yRot)),
-                elevation: el,
-                azimuth: finalAz
-            };
         } catch (e) {
-            console.error('[DemoEngine] _getCoords:', e);
-            return { left: 50, top: 50, elevation: 0, azimuth: 0 };
+            console.error('[MeteoCoordsCalculator] getCoords error:', e);
+            return this._defaultPosition();
         }
+    }
+
+    static _calculatePosition(azimuth, elevation, orbit, houseAngle, invertAzimuth) {
+        let finalAz = invertAzimuth ? (azimuth + 180) % 360 : azimuth;
+        const rad = (finalAz - houseAngle) * Math.PI / 180;
+        const x0 = orbit.rx * Math.sin(rad);
+        const y0 = -orbit.ry * Math.cos(rad);
+        const tiltRad = orbit.tilt * Math.PI / 180;
+        const xRot = x0 * Math.cos(tiltRad) - y0 * Math.sin(tiltRad);
+        const yRot = x0 * Math.sin(tiltRad) + y0 * Math.cos(tiltRad);
+        return {
+            left: Math.max(0, Math.min(100, orbit.cx + xRot)),
+            top: Math.max(0, Math.min(100, orbit.cy + yRot)),
+            elevation: elevation,
+            azimuth: finalAz
+        };
+    }
+
+    static _getOrbit(config) {
+        if (typeof config?.get === 'function') {
+            return config.get('orbit') || this._defaultOrbit();
+        }
+        return config?.orbit || this._defaultOrbit();
+    }
+
+    static _getHouseAngle(config) {
+        if (typeof config?.get === 'function') {
+            return config.get('house_angle') ?? 25;
+        }
+        return config?.house_angle ?? 25;
+    }
+
+    static _getInvertAzimuth(config) {
+        if (typeof config?.get === 'function') {
+            return config.get('invert_azimuth') ?? false;
+        }
+        return config?.invert_azimuth ?? false;
+    }
+
+    static _defaultOrbit() {
+        return { rx: 45, ry: 40, cx: 50, cy: 50, tilt: 0 };
+    }
+
+    static _defaultPosition() {
+        return { left: 50, top: 50, elevation: 0, azimuth: 0 };
+    }
+
+    static isVisible(position) {
+        return position?.elevation >= 0;
+    }
+
+    static getAzimuthDistance(az1, az2) {
+        const diff = Math.abs(az1 - az2);
+        return Math.min(diff, 360 - diff);
+    }
+
+    static interpolate(pos1, pos2, t) {
+        return {
+            left: pos1.left + (pos2.left - pos1.left) * t,
+            top: pos1.top + (pos2.top - pos1.top) * t,
+            elevation: pos1.elevation + (pos2.elevation - pos1.elevation) * t,
+            azimuth: pos1.azimuth + (pos2.azimuth - pos1.azimuth) * t
+        };
     }
 }
 
@@ -449,6 +510,113 @@ class MeteoConfig {
     }
 }
 
+class CoordsCache {
+    constructor() {
+        this.cache = new Map();
+    }
+
+    getCoords(azimuth, elevation, config) {
+        const key = `${Math.round(azimuth * 10) / 10}:${Math.round(elevation * 10) / 10}`;
+        
+        if (this.cache.has(key)) {
+            return this.cache.get(key);
+        }
+
+        const coords = MeteoCoordsCalculator.getCoords(azimuth, elevation, config);
+        this.cache.set(key, coords);
+        return coords;
+    }
+
+    clear() {
+        this.cache.clear();
+    }
+}
+
+class SharedAnimationLoop {
+    static instance = null;
+    static registeredCards = new Set();
+    static rafId = null;
+    static isRunning = false;
+    static lastFrameTime = 0;
+
+    static register(card) {
+        if (!card || typeof card._updateOptimized !== 'function') {
+            console.warn('[SharedAnimationLoop] Invalid card registration');
+            return;
+        }
+
+        SharedAnimationLoop.registeredCards.add(card);
+
+        if (!SharedAnimationLoop.isRunning) {
+            SharedAnimationLoop.start();
+        }
+    }
+
+    static unregister(card) {
+        SharedAnimationLoop.registeredCards.delete(card);
+
+        if (SharedAnimationLoop.registeredCards.size === 0) {
+            SharedAnimationLoop.stop();
+        }
+    }
+
+    static start() {
+        if (SharedAnimationLoop.isRunning) {
+            return;
+        }
+
+        SharedAnimationLoop.isRunning = true;
+        SharedAnimationLoop.lastFrameTime = Date.now();
+
+        const loop = () => {
+            try {
+                const currentTime = Date.now();
+                const deltaTime = currentTime - SharedAnimationLoop.lastFrameTime;
+                SharedAnimationLoop.lastFrameTime = currentTime;
+
+                const cardsToUpdate = Array.from(SharedAnimationLoop.registeredCards);
+
+                for (const card of cardsToUpdate) {
+                    if (card && card.isConnected && typeof card._updateOptimized === 'function') {
+                        try {
+                            card._updateOptimized();
+                        } catch (e) {
+                            console.error('[SharedAnimationLoop] Card update error:', e);
+                        }
+                    }
+                }
+
+                if (SharedAnimationLoop.isRunning) {
+                    SharedAnimationLoop.rafId = requestAnimationFrame(loop);
+                }
+            } catch (e) {
+                console.error('[SharedAnimationLoop] Loop error:', e);
+                SharedAnimationLoop.stop();
+            }
+        };
+
+        SharedAnimationLoop.rafId = requestAnimationFrame(loop);
+    }
+
+    static stop() {
+        if (SharedAnimationLoop.rafId !== null) {
+            cancelAnimationFrame(SharedAnimationLoop.rafId);
+            SharedAnimationLoop.rafId = null;
+        }
+
+        SharedAnimationLoop.isRunning = false;
+        SharedAnimationLoop.lastFrameTime = 0;
+    }
+
+    static getCardCount() {
+        return SharedAnimationLoop.registeredCards.size;
+    }
+
+    static isActive() {
+        return SharedAnimationLoop.isRunning;
+    }
+}
+
 class MeteoCard extends HTMLElement {
     constructor() {
         super();
@@ -477,7 +645,6 @@ class MeteoCard extends HTMLElement {
         this._moonElevationEntityId = null;
         this._moonPhaseEntityId = null;
         this._moonDegreesEntityId = null;
-        this._cachedDemoOptions = null;
         this._meteoConfig = null;
         this._validatedEntities = {
             weather: null, sun: null, moonAzimuth: null,
@@ -487,6 +654,9 @@ class MeteoCard extends HTMLElement {
         this._lastNight = null;
         this._hass = null;
         this._isDataMaster = false;
+        this._coordsCache = new CoordsCache();
+        this._lastSunAzimuth = null;
+        this._lastSunElevation = null;
     }
 
     set hass(hass) {
@@ -563,9 +733,18 @@ class MeteoCard extends HTMLElement {
                 numericAttribute: { 'azimuth': { min: 0, max: 360 }, 'elevation': { min: -180, max: 180 } }
             });
 
+            const currentSunAz = parseFloat(hass.states[this._sunEntityId]?.attributes?.azimuth);
+            const currentSunEl = parseFloat(hass.states[this._sunEntityId]?.attributes?.elevation);
+            
+            if (this._lastSunAzimuth !== currentSunAz || this._lastSunElevation !== currentSunEl) {
+                this._coordsCache.clear();
+                this._lastSunAzimuth = currentSunAz;
+                this._lastSunElevation = currentSunEl;
+            }
+
             if (!this._moonAzimuthEntityId) {
                 const moonAzAlt = EntityValidator.validate(hass, 'sensor.luna_lunar_azimuth') ||
-                                  EntityValidator.validate(hass, 'sensor.moon_azimuth');
+                                    EntityValidator.validate(hass, 'sensor.moon_azimuth');
                 this._validatedEntities.moonAzimuth = moonAzAlt;
             } else {
                 this._validatedEntities.moonAzimuth = EntityValidator.validate(hass, this._moonAzimuthEntityId);
@@ -573,7 +752,7 @@ class MeteoCard extends HTMLElement {
 
             if (!this._moonElevationEntityId) {
                 const moonElAlt = EntityValidator.validate(hass, 'sensor.luna_lunar_elevation') ||
-                                  EntityValidator.validate(hass, 'sensor.moon_elevation');
+                                    EntityValidator.validate(hass, 'sensor.moon_elevation');
                 this._validatedEntities.moonElevation = moonElAlt;
             } else {
                 this._validatedEntities.moonElevation = EntityValidator.validate(hass, this._moonElevationEntityId);
@@ -581,7 +760,7 @@ class MeteoCard extends HTMLElement {
 
             if (!this._moonPhaseEntityId) {
                 const moonPhaseAlt = EntityValidator.validate(hass, 'sensor.luna_lunar_phase') ||
-                                     EntityValidator.validate(hass, 'sensor.moon_phase');
+                                        EntityValidator.validate(hass, 'sensor.moon_phase');
                 this._validatedEntities.moonPhase = moonPhaseAlt;
             } else {
                 this._validatedEntities.moonPhase = EntityValidator.validate(hass, this._moonPhaseEntityId);
@@ -589,7 +768,7 @@ class MeteoCard extends HTMLElement {
 
             if (!this._moonDegreesEntityId) {
                 const moonDegreesAlt = EntityValidator.validate(hass, 'sensor.luna_lunar_phase_degrees') ||
-                                       EntityValidator.validate(hass, 'sensor.moon_phase_degrees');
+                                        EntityValidator.validate(hass, 'sensor.moon_phase_degrees');
                 this._validatedEntities.moonDegrees = moonDegreesAlt;
             } else {
                 this._validatedEntities.moonDegrees = EntityValidator.validate(hass, this._moonDegreesEntityId);
@@ -713,28 +892,27 @@ class MeteoCard extends HTMLElement {
     _startSlaveListener() {
         if (this._slaveListenerRequest) {
             cancelAnimationFrame(this._slaveListenerRequest);
+            this._slaveListenerRequest = undefined;
         }
 
-        const loop = () => {
-            if (!this.isConnected) {
-                this._stopSlaveListener();
-                return;
-            }
-            try {
-                this._checkForMasterAndStartDemo();
-                this._update();
-            } catch (e) {
-                console.error('[MeteoCard] slave listener:', e);
-            }
-            this._slaveListenerRequest = requestAnimationFrame(loop);
-        };
-        this._slaveListenerRequest = requestAnimationFrame(loop);
+        SharedAnimationLoop.register(this);
     }
 
     _stopSlaveListener() {
-        if (this._slaveListenerRequest) {
-            cancelAnimationFrame(this._slaveListenerRequest);
-            this._slaveListenerRequest = undefined;
+        SharedAnimationLoop.unregister(this);
+        this._slaveListenerRequest = undefined;
+    }
+
+    _updateOptimized() {
+        try {
+            if (!this.isConnected) {
+                return;
+            }
+
+            this._checkForMasterAndStartDemo();
+            this._update();
+        } catch (e) {
+            console.error('[MeteoCard] _updateOptimized:', e);
         }
     }
 
@@ -791,8 +969,13 @@ class MeteoCard extends HTMLElement {
     }
 
     disconnectedCallback() {
-        SingletonManager.unregisterCard(this._singletonId, this._cardId);
-        this._cleanup();
+        try {
+            SharedAnimationLoop.unregister(this);
+            SingletonManager.unregisterCard(this._singletonId, this._cardId);
+            this._cleanup();
+        } catch (e) {
+            console.error('[MeteoCard] disconnectedCallback:', e);
+        }
     }
 
     getCardSize() {
@@ -805,9 +988,79 @@ class MeteoCard extends HTMLElement {
 
     _cleanup() {
         this._stopSlaveListener();
-        this._cleanupDemoEvents();
-        this._domCache = {};
+        this._stopDemo();
+        this._cleanupAllListeners();
+        this._clearDOMCache();
+        this._clearStyleSheets();
+        this._coordsCache.clear();
         this._demoListeners = [];
+        this._previousStates = {};
+    }
+
+    _cleanupAllListeners() {
+        this._demoListeners.forEach(({ el, ev, fn }) => {
+            if (el && typeof el.removeEventListener === 'function') {
+                el.removeEventListener(ev, fn);
+            }
+        });
+        this._demoListeners = [];
+
+        if (this._boundPlayPauseFn) {
+            const btn = this.querySelector('#btn-toggle-demo');
+            if (btn) btn.removeEventListener('click', this._boundPlayPauseFn);
+            this._boundPlayPauseFn = null;
+        }
+
+        if (this._boundStopFn) {
+            const stopBtn = this.querySelector('#btn-stop-demo');
+            if (stopBtn) stopBtn.removeEventListener('click', this._boundStopFn);
+            this._boundStopFn = null;
+        }
+
+        if (this._boundSelectFn) {
+            const select = this.querySelector('#select-demo-condition');
+            if (select) select.removeEventListener('change', this._boundSelectFn);
+            this._boundSelectFn = null;
+        }
+
+        if (this.content) {
+            this.content.onclick = null;
+        }
+
+        this._hasEvents = false;
+        this._demoListenersBound = false;
+    }
+
+    _clearDOMCache() {
+        Object.keys(this._domCache).forEach(key => {
+            const el = this._domCache[key];
+            if (el && el.parentNode) {
+                try {
+                    el.innerHTML = '';
+                } catch (e) {
+                    // Element already removed
+                }
+            }
+            this._domCache[key] = null;
+        });
+        this._domCache = {};
+    }
+
+    _clearStyleSheets() {
+        if (this.dynamicStyleSheet && this.dynamicStyleSheet.parentNode) {
+            this.dynamicStyleSheet.parentNode.removeChild(this.dynamicStyleSheet);
+        }
+        this.dynamicStyleSheet = null;
+
+        if (this._keyframesSheet && this._keyframesSheet.parentNode) {
+            this._keyframesSheet.parentNode.removeChild(this._keyframesSheet);
+        }
+        this._keyframesSheet = null;
+
+        const injectedStyle = this.querySelector('style[data-meteo-injected]');
+        if (injectedStyle && injectedStyle.parentNode) {
+            injectedStyle.parentNode.removeChild(injectedStyle);
+        }
     }
 
     _startDemo() {
@@ -841,15 +1094,9 @@ class MeteoCard extends HTMLElement {
                     }
                 }
             }
+
             if (demoState === 'stopped') {
                 this._demoRequest = undefined;
-                return;
-            }
-            
-            if (SingletonManager.isResetRequested(this._singletonId)) {
-                this._sharedState.demoResetRequested = false;
-                this._demoRequest = undefined;
-                this._startDemo();
                 return;
             }
 
@@ -891,37 +1138,7 @@ class MeteoCard extends HTMLElement {
     }
 
     _getCoords(azimuth, elevation) {
-        try {
-            const az = parseFloat(azimuth);
-            const el = parseFloat(elevation);
-
-            if (isNaN(az) || isNaN(el)) {
-                console.warn('[MeteoCard] Invalid coordinates:', { azimuth, elevation });
-                return { left: 50, top: 50, elevation: 0, azimuth: 0 };
-            }
-
-            const o = this._meteoConfig.get('orbit');
-            const houseAngle = this._meteoConfig.get('house_angle');
-            const invertAzimuth = this._meteoConfig.get('invert_azimuth');
-
-            let finalAz = invertAzimuth ? (az + 180) % 360 : az;
-            const rad = (finalAz - houseAngle) * Math.PI / 180;
-            const x0 = o.rx * Math.sin(rad);
-            const y0 = -o.ry * Math.cos(rad);
-            const tiltRad = o.tilt * Math.PI / 180;
-            const xRot = x0 * Math.cos(tiltRad) - y0 * Math.sin(tiltRad);
-            const yRot = x0 * Math.sin(tiltRad) + y0 * Math.cos(tiltRad);
-
-            return {
-                left: Math.max(0, Math.min(100, o.cx + xRot)),
-                top: Math.max(0, Math.min(100, o.cy + yRot)),
-                elevation: el,
-                azimuth: finalAz
-            };
-        } catch (e) {
-            console.error('[MeteoCard] _getCoords:', e);
-            return { left: 50, top: 50, elevation: 0, azimuth: 0 };
-        }
+        return MeteoCoordsCalculator.getCoords(azimuth, elevation, this._meteoConfig);  // ✅ CORRECT
     }
 
     _update() {
@@ -1007,18 +1224,10 @@ class MeteoCard extends HTMLElement {
             
             const sunAzimuth = parseFloat(sunEntity.attributes?.azimuth) || 0;
             const sunElevation = parseFloat(sunEntity.attributes?.elevation) || 0;
-            const sunPos = this._getCoords(sunAzimuth, sunElevation);
+            const sunPos = this._coordsCache.getCoords(sunAzimuth, sunElevation, this._meteoConfig);
 
-            let moonPos = this._getCoords((sunAzimuth + 180) % 360, -sunElevation);
-
-            const moonAzEntity = this._hass.states[this._moonAzimuthEntityId];
-            const moonElEntity = this._hass.states[this._moonElevationEntityId];
-            
-            if (moonAzEntity && moonElEntity) {
-                const moonAz = parseFloat(moonAzEntity.state) || (sunAzimuth + 180);
-                const moonEl = parseFloat(moonElEntity.state) || -sunElevation;
-                moonPos = this._getCoords(moonAz, moonEl);
-            }
+            const { moonAz, moonEl } = this._calculateMoonCoordinates(sunAzimuth, sunElevation, this._hass);
+            const moonPos = this._coordsCache.getCoords(moonAz, moonEl, this._meteoConfig);
 
             const windSpeed = Math.max(0, parseFloat(weatherEntity.attributes?.wind_speed) || 0);
             const moonPhaseEntity = this._hass.states[this._moonPhaseEntityId];
@@ -1045,38 +1254,15 @@ class MeteoCard extends HTMLElement {
         }
     }
 
-    _getDemoUIOptions() {
-        if (this._cachedDemoOptions) return this._cachedDemoOptions;
-
-        const cond = this._meteoConfig.get('conditions');
-        let opts = `<option value="auto">🔄 Auto</option>`;
-        Object.keys(cond).filter(c => c !== 'default').forEach(c => {
-            opts += `<option value="${c}">${c.toUpperCase()}</option>`;
-        });
-
-        this._cachedDemoOptions = opts;
-        return opts;
-    }
-
     _updateDynamic(state) {
         try {
             let { isNight, sunPos, moonPos, moonPhase, moonPhaseDegrees, rising, condition, simulatedHour: hour, windSpeed } = state;
 
-            const sharedState = SingletonManager.getSingleton(this._singletonId);
-            const demoState = SingletonManager.getDemoState(this._singletonId);
-            
-            sharedState.sunPos = sunPos;
-            sharedState.moonPos = moonPos;
-            sharedState.moonPhase = moonPhase;
-            sharedState.moonPhaseDegrees = moonPhaseDegrees;
-            sharedState.isNight = isNight;
-            sharedState.rising = rising;
-            sharedState.condition = condition;
-            sharedState.windSpeed = windSpeed;
-            sharedState.simulatedHour = hour;
+            this._updateSharedState(state);
 
             const sunWrapper = this._domCache.sunWrapper || this.content?.querySelector('.sun-wrapper');
             if (sunWrapper) {
+                const sharedState = SingletonManager.getSingleton(this._singletonId);
                 if (this._isDemoLayerEnabled) sunWrapper.style.transition = 'none';
                 sunWrapper.style.display = sharedState.sunPos.elevation >= 0 ? 'block' : 'none';
                 sunWrapper.style.left = `${sharedState.sunPos.left}%`;
@@ -1085,6 +1271,7 @@ class MeteoCard extends HTMLElement {
 
             const sun = this._domCache.sunContainer || this.content?.querySelector('.sun-container');
             if (sun) {
+                const sharedState = SingletonManager.getSingleton(this._singletonId);
                 if (sharedState.sunPos.elevation >= 0) {
                     sun.innerHTML = this._sunSVG();
                 } else {
@@ -1094,6 +1281,7 @@ class MeteoCard extends HTMLElement {
 
             const lensFlare = this._domCache.lensFlare || this.content?.querySelector('.lens-flare');
             if (lensFlare) {
+                const sharedState = SingletonManager.getSingleton(this._singletonId);
                 if (sharedState.sunPos.elevation >= 0 && this._meteoConfig.get('sun.lens_flare.enabled')) {
                     const minuteOfDay = Math.floor(hour * 60);
                     lensFlare.innerHTML = this._lensFlare(sharedState.sunPos, minuteOfDay);
@@ -1104,6 +1292,7 @@ class MeteoCard extends HTMLElement {
 
             const moon = this._domCache.moonContainer || this.content?.querySelector('.moon-container');
             if (moon) {
+                const sharedState = SingletonManager.getSingleton(this._singletonId);
                 if (this._isDemoLayerEnabled) moon.style.transition = 'none';
                 moon.style.display = sharedState.moonPos.elevation >= 0 ? 'block' : 'none';
                 moon.style.left = `${sharedState.moonPos.left}%`;
@@ -1117,6 +1306,7 @@ class MeteoCard extends HTMLElement {
 
             const sky = this._domCache.skyBg || this.content?.querySelector('.sky-bg');
             if (sky) {
+                const sharedState = SingletonManager.getSingleton(this._singletonId);
                 let fPos = isNight ? moonPos : sunPos;
                 const conf = this._meteoConfig.get(`conditions.${condition}`);
                 const sunConf = this._meteoConfig.get('sun');
@@ -1203,6 +1393,40 @@ class MeteoCard extends HTMLElement {
         this._keyframesSheet.textContent = requiredKeyframes;
     }
 
+    _calculateMoonCoordinates(sunAzimuth, sunElevation, hass) {
+        let moonAz = (sunAzimuth + 180) % 360;
+        let moonEl = -sunElevation;
+
+        const moonAzEntity = hass?.states?.[this._moonAzimuthEntityId];
+        const moonElEntity = hass?.states?.[this._moonElevationEntityId];
+        
+        if (moonAzEntity?.state && moonElEntity?.state) {
+            const parsedAz = parseFloat(moonAzEntity.state);
+            const parsedEl = parseFloat(moonElEntity.state);
+            
+            if (!isNaN(parsedAz) && !isNaN(parsedEl)) {
+                moonAz = parsedAz;
+                moonEl = parsedEl;
+            }
+        }
+
+        return { moonAz, moonEl };
+    }
+
+    _updateSharedState(state) {
+        const sharedState = SingletonManager.getSingleton(this._singletonId);
+        
+        sharedState.sunPos = state.sunPos;
+        sharedState.moonPos = state.moonPos;
+        sharedState.moonPhase = state.moonPhase;
+        sharedState.moonPhaseDegrees = state.moonPhaseDegrees;
+        sharedState.isNight = state.isNight;
+        sharedState.rising = state.rising;
+        sharedState.condition = state.condition;
+        sharedState.windSpeed = state.windSpeed;
+        sharedState.simulatedHour = state.simulatedHour;
+    }
+
     _renderAll(state) {
         try {
             this.cloudCounter = 0;
@@ -1219,15 +1443,7 @@ class MeteoCard extends HTMLElement {
             const cond = this._meteoConfig.get(`conditions.${condition}`) || this._meteoConfig.get('conditions.default');
             const configuredLayers = this._meteoConfig.get('layers') || [];
 
-            const sharedState = SingletonManager.getSingleton(this._singletonId);
-            sharedState.sunPos = sunPos;
-            sharedState.moonPos = moonPos;
-            sharedState.moonPhase = moonPhase;
-            sharedState.moonPhaseDegrees = state.moonPhaseDegrees;
-            sharedState.isNight = isNight;
-            sharedState.rising = rising;
-            sharedState.condition = condition;
-            sharedState.windSpeed = windSpeed;
+            this._updateSharedState(state);
 
             let html = `<svg style="width:0;height:0;position:absolute;"><filter id="cloud-distort"><feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="3" seed="5"/><feDisplacementMap in="SourceGraphic" scale="35" /></filter></svg>`;
 
@@ -1266,7 +1482,9 @@ class MeteoCard extends HTMLElement {
 
     _cleanupEvents() {
         this._demoListeners.forEach(({ el, ev, fn }) => {
-            if (el) el.removeEventListener(ev, fn);
+            if (el && typeof el.removeEventListener === 'function') {
+                el.removeEventListener(ev, fn);
+            }
         });
         this._demoListeners = [];
     }
@@ -1282,24 +1500,20 @@ class MeteoCard extends HTMLElement {
             if (!Array.isArray(configuredLayers) || !configuredLayers.includes(layer)) {
                 return '';
             }
-                
+            
             if (layer === 'sky') {
-                return `<div class="sky-bg" style="position:absolute; inset:0; transition: background 3s ease-in-out;"></div>` +
-                    (isNight ? `<div style="position:absolute; inset:0;">${this._stars(100, css)}${this._shootings(2, css)}</div>` : '');
+                const nightContent = isNight ? `<div style="position:absolute; inset:0;">${this._stars(100, css)}${this._shootings(2, css)}</div>` : '';
+                return `<div class="sky-bg" style="position:absolute; inset:0; transition: background 3s ease-in-out;"></div>${nightContent}`;
             }
 
             if (layer === 'sun') {
-                return `<div class="sun-wrapper" style="position:absolute; transform:translate(-50%, -50%); pointer-events:none; display:none; width:900px; height:900px;">
-                            <div class="sun-container" style="position:absolute; inset:0; width:100%; height:100%;"></div>
-                            <div class="lens-flare" style="position:absolute; inset:0; width:100%; height:100%;"></div>
-                        </div>`;
+                return `<div class="sun-wrapper" style="position:absolute; transform:translate(-50%, -50%); pointer-events:none; display:none; width:900px; height:900px;"><div class="sun-container" style="position:absolute; inset:0; width:100%; height:100%;"></div><div class="lens-flare" style="position:absolute; inset:0; width:100%; height:100%;"></div></div>`;
             }
 
             if (layer === 'moon') {
                 return `<div class="moon-container" style="position:absolute; transform:translate(-50%, -50%); pointer-events:none; display:none; width:900px; height:900px;"></div>`;
             }
             
-            let h = '';
             const cloudRatio = cond.background_ratio || 0.5;
 
             if (layer === 'background') {
@@ -1307,16 +1521,19 @@ class MeteoCard extends HTMLElement {
                 const bgCloudCount = (bgHtml.match(/class="[^"]*-cl-/g) || []).length;
                 const sharedState = SingletonManager.getSingleton(this._singletonId);
                 sharedState.bgCloudCount = bgCloudCount;
-                h += bgHtml;
                 
+                let h = bgHtml;
                 if (cond.fog) {
                     const fogCount = Math.ceil(this._meteoConfig.get('fog.count') * cloudRatio);
                     h += this._fog(fogCount, css);
                 }
+                return h;
             }
             
             if (layer === 'foreground') {
+                let h = '';
                 if (cond.lightning) h += `<div class="lightning"></div>`;
+                
                 const fgHtml = this._clouds(cond.clouds, css, isNight, windSpeed, (1 - cloudRatio));
                 const fgCloudCount = (fgHtml.match(/class="[^"]*-cl-/g) || []).length;
                 const sharedState = SingletonManager.getSingleton(this._singletonId);
@@ -1338,11 +1555,19 @@ class MeteoCard extends HTMLElement {
                 return h;
             }
             
-            return h;
+            return '';
         } catch (e) {
             console.error('[MeteoCard] _renderLayer:', e);
             return '';
         }
+    }
+
+    _createStatRow(label, value) {
+        return `<div class="stat-row"><span class="stat-label">${label}</span><span class="stat-value">${value}</span></div>`;
+    }
+
+    _createButton(id, className, text) {
+        return `<button class="demo-btn ${className}" id="${id}">${text}</button>`;
     }
 
     _demoUI() {
@@ -1354,63 +1579,25 @@ class MeteoCard extends HTMLElement {
         const m = Math.floor((simulatedHour % 1) * 60);
         const timeStr = `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:00`;
 
-        const totalClouds = (state.bgCloudCount || 0) + (state.fgCloudCount || 0);
         const sunConf = this._meteoConfig.get('sun');
         const srLimits = Array.isArray(sunConf.sunrise_limits) ? sunConf.sunrise_limits : [0, 5];
         const ssLimits = Array.isArray(sunConf.sunset_limits) ? sunConf.sunset_limits : [0, 5];
         const sunLimitsStr = `Rise: ${srLimits[0]}°/${srLimits[1]}° | Set: ${ssLimits[0]}°/${ssLimits[1]}°`;
 
-        const rising = sharedState.rising ? '⬆️ RISING' : '⬇️ SETTING';
         const slaveCount = (state.registeredCards ? state.registeredCards.size : 1) - 1;
 
         return `
-            <div class="stat-row">
-                <span class="stat-label">State:</span>
-                <span class="stat-value">${state.demoState.toUpperCase()}</span>
-            </div>
-            <div class="stat-row">
-                <span class="stat-label">Time:</span>
-                <span class="stat-value">${timeStr}</span>
-            </div>
-            <div class="stat-row">
-                <span class="stat-label">Weather:</span>
-                <span class="stat-value">${(sharedState.condition || '').toUpperCase()}</span>
-            </div>
-
-            <div class="stat-row">
-                <span class="stat-label">Wind:</span>
-                <span class="stat-value">${(sharedState.windSpeed || 0).toFixed(1)} km/h</span>
-            </div>
-
-            <div class="stat-row">
-                <span class="stat-label">Sun:</span>
-                <span class="stat-value">${(sharedState.sunPos?.elevation || 0).toFixed(1)}° | ${(sharedState.sunPos?.azimuth || 0).toFixed(1)}°</span>
-            </div>
-
-            <div class="stat-row">
-                <span class="stat-label">Moon:</span>
-                <span class="stat-value">${(sharedState.moonPos?.elevation || 0).toFixed(1)}° | ${(sharedState.moonPos?.azimuth || 0).toFixed(1)}°</span>
-            </div>
-
-            <div class="stat-row">
-                <span class="stat-label">Phase:</span>
-                <span class="stat-value">${this._safe(sharedState.moonPhase)} | ${(sharedState.moonPhaseDegrees || 0).toFixed(1)}°</span>
-            </div>
-
-            <div class="stat-row">
-                <span class="stat-label">Clouds:</span>
-                <span class="stat-value">BG: ${state.bgCloudCount || 0} FG: ${state.fgCloudCount || 0}</span>
-            </div>
-
-            <div class="stat-row">
-                <span class="stat-label">Limits:</span>
-                <span class="stat-value">${sunLimitsStr}</span>
-            </div>
-
-            <div class="stat-row">
-                <span class="stat-label">Cards:</span>
-                <span class="stat-value"> 👑 1 / 👷 ${Math.max(0, slaveCount)}</div>
-        `;
+    ${this._createStatRow('State:', state.demoState.toUpperCase())}
+    ${this._createStatRow('Time:', timeStr)}
+    ${this._createStatRow('Weather:', (sharedState.condition || '').toUpperCase())}
+    ${this._createStatRow('Wind:', `${(sharedState.windSpeed || 0).toFixed(1)} km/h`)}
+    ${this._createStatRow('Sun:', `${(sharedState.sunPos?.elevation || 0).toFixed(1)}° | ${(sharedState.sunPos?.azimuth || 0).toFixed(1)}°`)}
+    ${this._createStatRow('Moon:', `${(sharedState.moonPos?.elevation || 0).toFixed(1)}° | ${(sharedState.moonPos?.azimuth || 0).toFixed(1)}°`)}
+    ${this._createStatRow('Phase:', `${this._safe(sharedState.moonPhase)} | ${(sharedState.moonPhaseDegrees || 0).toFixed(1)}°`)}
+    ${this._createStatRow('Clouds:', `BG: ${state.bgCloudCount || 0} FG: ${state.fgCloudCount || 0}`)}
+    ${this._createStatRow('Limits:', sunLimitsStr)}
+    ${this._createStatRow('Cards:', `👑 1 / 👷 ${Math.max(0, slaveCount)}`)}
+        `.trim();
     }
 
     _createPersistentDemoControls() {
@@ -1418,32 +1605,29 @@ class MeteoCard extends HTMLElement {
         const currentState = SingletonManager.getDemoState(this._singletonId);
 
         const isRunning = currentState === 'running';
-        const playPauseBtn = `<button class="demo-btn btn-toggle ${isRunning ? 'btn-pause' : 'btn-play'}" id="btn-toggle-demo">${isRunning ? '⏸ Pause' : '▶ Play'}</button>`;
+        const playPauseBtnClass = isRunning ? 'btn-pause' : 'btn-play';
+        const playPauseBtnText = isRunning ? '⏸ Pause' : '▶ Play';
+        const playPauseBtn = this._createButton('btn-toggle-demo', playPauseBtnClass, playPauseBtnText);
+        const stopBtn = this._createButton('btn-stop-demo', 'btn-stop', '⏹ STOP');
 
         const currentCondition = sharedState.demoForcedCondition || 'auto';
-        const options = ['auto', ...Object.keys(this._meteoConfig.get('conditions'))]
+        const conditionOptions = ['auto', ...Object.keys(this._meteoConfig.get('conditions'))]
             .filter(c => c !== 'default')
             .map(c => `<option value="${c}" ${currentCondition === c ? 'selected' : ''}>${c === 'auto' ? 'AUTO' : c.toUpperCase()}</option>`)
             .join('');
+        const conditionSelect = `<select class="demo-select" id="select-demo-condition">${conditionOptions}</select>`;
 
         const controlsHtml = `
-            <div class="demo-controls">
-                <div class="demo-stats-container">
-                    <div class="demo-stats-inner">
-                        ${this._demoUI()}
-                    </div>
-                </div>
-                
-                <div class="demo-controls-container">
-                    <div class="demo-controls-buttons">
-                        ${playPauseBtn}
-                        <button class="demo-btn btn-stop" id="btn-stop-demo">⏹ STOP</button>
-                    </div>
-                    <select class="demo-select" id="select-demo-condition">
-                        ${options}
-                    </select>
-                </div>
-            </div>`;
+    <div class="demo-controls">
+        <div class="demo-stats-container">
+            <div class="demo-stats-inner">${this._demoUI()}</div>
+        </div>
+        <div class="demo-controls-container">
+            <div class="demo-controls-buttons">${playPauseBtn}${stopBtn}</div>
+            ${conditionSelect}
+        </div>
+    </div>
+        `.trim();
 
         this.insertAdjacentHTML('beforeend', controlsHtml);
         this._attachDemoListeners();
@@ -1461,39 +1645,39 @@ class MeteoCard extends HTMLElement {
         }
         
         if (btn) {
-        btn.onclick = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
+            this._boundPlayPauseFn = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
 
-            const currentState = SingletonManager.getDemoState(this._singletonId);
+                const currentState = SingletonManager.getDemoState(this._singletonId);
+                let newState;
 
-            let newState;
+                if (currentState === 'running') {
+                    newState = 'paused';
+                    SingletonManager.setDemoState(this._singletonId, 'paused');
+                    this._stopDemo();
+                } else {
+                    newState = 'running';
+                    SingletonManager.startDemo(this._singletonId);
 
-            if (currentState === 'running') {
-            newState = 'paused';
-            SingletonManager.setDemoState(this._singletonId, 'paused');
-            this._stopDemo();
-            } else {
-            newState = 'running';
-            SingletonManager.startDemo(this._singletonId);
+                    if (!this._demoEngine) {
+                        this._demoEngine = new DemoEngine(this._meteoConfig, this._singletonId);
+                        const initialState = this._demoEngine.compute();
+                        SingletonManager.setActualState(this._singletonId, initialState);
+                    }
 
-            if (!this._demoEngine) {
-                this._demoEngine = new DemoEngine(this._meteoConfig, this._singletonId);
-                const initialState = this._demoEngine.compute();
-                SingletonManager.setActualState(this._singletonId, initialState);
-            }
+                    if (!this._demoRequest) {
+                        this._startDemo();
+                    }
+                }
 
-            if (!this._demoRequest) {
-                this._startDemo();
-            }
-            }
+                btn.classList.toggle('btn-play', newState !== 'running');
+                btn.classList.toggle('btn-pause', newState === 'running');
+                btn.textContent = newState === 'running' ? '⏸ Pause' : '▶ Play';
 
-            btn.classList.toggle('btn-play', newState !== 'running');
-            btn.classList.toggle('btn-pause', newState === 'running');
-            btn.textContent = newState === 'running' ? '⏸ Pause' : '▶ Play';
-
-            this._update();
-        };
+                this._update();
+            };
+            btn.addEventListener('click', this._boundPlayPauseFn);
         }
         
         if (stopBtn) {
@@ -1839,6 +2023,7 @@ class MeteoCard extends HTMLElement {
 
     _injectStyles() {
         const s = document.createElement('style');
+        s.setAttribute('data-meteo-injected', 'true');
         s.textContent = `
             meteo-card { isolation: isolate; position: relative; }
             ha-card { width: 100% !important; height: 100% !important; min-height: 320px !important; position: relative !important; overflow: hidden !important; background: transparent !important; border: none !important; display: block !important; isolation: isolate; }
@@ -1880,66 +2065,6 @@ class MeteoCard extends HTMLElement {
         if (!this._demoControlsCreated && this._isDemoLayerEnabled && this._isDemoUIMaster) {
             this._createPersistentDemoControls();
             this._demoControlsCreated = true;
-        }
-
-        if (!this._hasEvents) {
-            this.addEventListener('click', (e) => {
-                const btn = e.composedPath().find(el => el && el.id === 'btn-toggle-demo');
-                const stopBtn = e.composedPath().find(el => el && el.id === 'btn-stop-demo');
-                
-                if (btn) {
-                    e.preventDefault(); 
-                    e.stopPropagation();
-                    
-                    const currentState = SingletonManager.getDemoState(this._singletonId);
-                    const sharedState = SingletonManager.getSingleton(this._singletonId);
-                    if (currentState === 'running') {
-                        SingletonManager.setDemoState(this._singletonId, 'paused');
-                        this._stopDemo();
-                        
-                    } else if (currentState === 'paused') {
-                        SingletonManager.startDemo(this._singletonId);
-                        if (!this._demoRequest) {
-                            this._startDemo();
-                        }
-                        
-                    } else {
-                        
-                        SingletonManager.startDemo(this._singletonId);
-                        
-                        if (!this._demoEngine) {
-                            this._demoEngine = new DemoEngine(this._meteoConfig, this._singletonId);
-                            const initialState = this._demoEngine.compute();
-                            SingletonManager.setActualState(this._singletonId, initialState);
-                        }
-                        
-                        if (!this._demoRequest) {
-                            this._startDemo();
-                        }
-                    }
-                    
-                    this._update();
-                }
-                
-                if (stopBtn) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    
-                    
-                    SingletonManager.stopDemo(this._singletonId);
-                    this._stopDemo();
-                    
-                    if (this._hass) {
-                        const realData = this._realData();
-                        if (realData) {
-                            SingletonManager.setActualState(this._singletonId, realData);
-                        }
-                    }
-                    
-                    this._update();
-                }
-            });
-            this._hasEvents = true;
         }
     }
 }
