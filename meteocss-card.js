@@ -1,4 +1,4 @@
-console.info("%c 🙂 MeteoCSS Card %c v2.0.2 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
+console.info("%c 🙂 MeteoCSS Card %c v2.0.3 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
 
 const CARD_CONFIG = {
     type: 'meteo-card',
@@ -7,30 +7,12 @@ const CARD_CONFIG = {
     preview: true
 };
 
-const MeteoSingletons = {};
-const singletonStructure = {
-    demoTimeOffset: 0,
-    demoState: 'stopped',
-    demoResetRequested: false,
-    lastUpdateTimestamp: Date.now(),
-    demoScenario: [],
-    lastCycleId: -1,
-    demoForcedCondition: 'auto',
-    demoUIMaster: null,
-    demoUIElement: null,
-    actualState: null,
-    masterLock: null,
-    bgCloudCount: 0,
-    fgCloudCount: 0,
-    registeredCards: new Set(),
-    lastPauseState: false,
-    dataMaster: null
-};
+const METEO_SINGLETONS = {};
 
 class SingletonManager {
     static getSingleton(singletonId) {
-        if (!MeteoSingletons[singletonId]) {
-            MeteoSingletons[singletonId] = {
+        if (!METEO_SINGLETONS[singletonId]) {
+            METEO_SINGLETONS[singletonId] = {
                 demoTimeOffset: 0,
                 demoState: 'stopped',
                 lastUpdateTimestamp: Date.now(),
@@ -46,12 +28,14 @@ class SingletonManager {
                 realDataTimestamp: null
             };
         }
-        return MeteoSingletons[singletonId];
+        return METEO_SINGLETONS[singletonId];
     }
 
     static stopDemo(singletonId) {
         const singleton = this.getSingleton(singletonId);
         singleton.demoState = 'stopped';
+        singleton.demoTimeOffset = 0;
+        singleton.demoScenario = [];
     }
 
     static startDemo(singletonId) {
@@ -144,16 +128,16 @@ class SingletonManager {
     }
 
     static unregisterCard(singletonId, cardId) {
-        if (MeteoSingletons[singletonId]) {
-            MeteoSingletons[singletonId].registeredCards.delete(cardId);
-            if (MeteoSingletons[singletonId].dataMaster === cardId) {
-                MeteoSingletons[singletonId].dataMaster = null;
+        if (METEO_SINGLETONS[singletonId]) {
+            METEO_SINGLETONS[singletonId].registeredCards.delete(cardId);
+            if (METEO_SINGLETONS[singletonId].dataMaster === cardId) {
+                METEO_SINGLETONS[singletonId].dataMaster = null;
             }
-            if (MeteoSingletons[singletonId].registeredCards.size === 0) {
-                if (MeteoSingletons[singletonId].demoUIElement) {
-                    MeteoSingletons[singletonId].demoUIElement.remove();
+            if (METEO_SINGLETONS[singletonId].registeredCards.size === 0) {
+                if (METEO_SINGLETONS[singletonId].demoUIElement) {
+                    METEO_SINGLETONS[singletonId].demoUIElement.remove();
                 }
-                delete MeteoSingletons[singletonId];
+                delete METEO_SINGLETONS[singletonId];
             }
         }
     }
@@ -421,7 +405,8 @@ class MeteoState {
         this.moonPhase = data.moonPhase || 'Full Moon';
         this.moonPhaseDegrees = data.moonPhaseDegrees || 0;
         this.rising = data.rising ?? false;
-        this.simulatedHour = data.simulatedHour ?? (new Date().getHours() + (new Date().getMinutes() / 60));
+        const _now = new Date();
+        this.simulatedHour = data.simulatedHour ?? (_now.getHours() + _now.getMinutes() / 60);
         this.windSpeed = data.windSpeed ?? 25;
     }
 }
@@ -628,7 +613,7 @@ class MeteoConfig {
     _deepMerge(target, source) {
         if (!source) return;
         for (const key in source) {
-            if (source.hasOwnProperty(key)) {
+            if (Object.hasOwn(source, key)) {
                 const sourceVal = source[key];
                 const targetVal = target[key];
                 if (sourceVal !== null && sourceVal !== undefined) {
@@ -658,6 +643,8 @@ class MeteoConfig {
 }
 
 class CoordsCache {
+    static MAX_SIZE = 200;
+
     constructor() {
         this.cache = new Map();
     }
@@ -666,10 +653,18 @@ class CoordsCache {
         const key = `${Math.round(azimuth * 10) / 10}:${Math.round(elevation * 10) / 10}`;
 
         if (this.cache.has(key)) {
-            return this.cache.get(key);
+            const val = this.cache.get(key);
+            // Refresh insertion order for LRU
+            this.cache.delete(key);
+            this.cache.set(key, val);
+            return val;
         }
 
         const coords = MeteoCoordsCalculator.getCoords(azimuth, elevation, config);
+        if (this.cache.size >= CoordsCache.MAX_SIZE) {
+            // Evict oldest entry (first key in insertion order)
+            this.cache.delete(this.cache.keys().next().value);
+        }
         this.cache.set(key, coords);
         return coords;
     }
@@ -767,14 +762,14 @@ class SharedAnimationLoop {
 class MeteoCard extends HTMLElement {
     constructor() {
         super();
-        this._cardId = 'meteo-' + Math.random().toString(36).substr(2, 9);
+        this._cardId = 'meteo-' + Math.random().toString(36).substring(2, 11);
         this._singletonId = null;
         this._sharedState = null;
         this._isDemoUIMaster = false;
         this._isDemoLayerEnabled = false;
         this._demoEngine = null;
         this._registeredInSingleton = false;
-        this.cloudCounter = 0;
+        this._cloudCounter = 0;
         this._moonMaskIdCounter = 0;
         this._initialized = false;
         this._lastHassUpdate = 0;
@@ -783,7 +778,7 @@ class MeteoCard extends HTMLElement {
         this._previousStates = {};
         this._domCache = {};
         this._demoListeners = [];
-        this.dynamicStyleSheet = null;
+        this._dynamicStyleSheet = null;
         this._loadedKeyframes = null;
         this._keyframesSheet = null;
         this._weatherEntityId = null;
@@ -809,19 +804,17 @@ class MeteoCard extends HTMLElement {
         this._lastSunAzimuth = null;
         this._lastSunElevation = null;
         this._lastLayers = [];
+        this._lastSunElevationForSVG = null;
+        this._lastMoonPhaseForSVG = null;
+        this._lastMoonPhaseDegreesForSVG = null;
+        this._lastLensMinute = null;
+        this._lastDemoUIUpdate = 0;
+        this._editModeHandler = null;
     }
 
     set hass(hass) {
         try {
-            if (!this.content) {
-                this.innerHTML = `<ha-card></ha-card>`;
-                this.content = this.querySelector('ha-card');
-                if (!this.content) {
-                    console.error('[MeteoCard] Failed to initialize content container');
-                    return;
-                }
-                this._injectStyles();
-            }
+            if (!this._ensureContent()) return;
 
             this._hass = hass;
 
@@ -832,7 +825,13 @@ class MeteoCard extends HTMLElement {
 
             const sharedState = SingletonManager.getSingleton(this._singletonId);
 
-            if (!sharedState.realDataReady) {
+            const demoState = SingletonManager.getDemoState(this._singletonId);
+
+            if (demoState === 'running') {
+                return;
+            }
+
+            if (!sharedState.realDataReady && demoState !== 'running') {
                 this._validateEntitiesFromHass(hass);
                 const realData = this._realData();
                 if (realData) {
@@ -840,13 +839,6 @@ class MeteoCard extends HTMLElement {
                     sharedState.realDataReady = true;
                     sharedState.realDataTimestamp = Date.now();
                 }
-            }
-
-            const hasActiveDemo = sharedState && sharedState.actualState && sharedState.demoUIMaster;
-            const demoState = SingletonManager.getDemoState(this._singletonId);
-
-            if (hasActiveDemo && demoState === 'running' && this._initialized) {
-                return;
             }
 
             const now = Date.now();
@@ -907,46 +899,40 @@ class MeteoCard extends HTMLElement {
                 }
             }
 
-            if (!this._moonAzimuthEntityId) {
-                const moonAzAlt = EntityValidator.validate(hass, 'sensor.luna_lunar_azimuth') ||
-                    EntityValidator.validate(hass, 'sensor.moon_azimuth');
-                this._validatedEntities.moonAzimuth = moonAzAlt;
-            } else {
-                this._validatedEntities.moonAzimuth = EntityValidator.validate(hass, this._moonAzimuthEntityId);
-            }
-
-            if (!this._moonElevationEntityId) {
-                const moonElAlt = EntityValidator.validate(hass, 'sensor.luna_lunar_elevation') ||
-                    EntityValidator.validate(hass, 'sensor.moon_elevation');
-                this._validatedEntities.moonElevation = moonElAlt;
-            } else {
-                this._validatedEntities.moonElevation = EntityValidator.validate(hass, this._moonElevationEntityId);
-            }
-
-            if (!this._moonPhaseEntityId) {
-                const moonPhaseAlt = EntityValidator.validate(hass, 'sensor.luna_lunar_phase') ||
-                    EntityValidator.validate(hass, 'sensor.moon_phase');
-                this._validatedEntities.moonPhase = moonPhaseAlt;
-            } else {
-                this._validatedEntities.moonPhase = EntityValidator.validate(hass, this._moonPhaseEntityId);
-            }
-
-            if (!this._moonDegreesEntityId) {
-                const moonDegreesAlt = EntityValidator.validate(hass, 'sensor.luna_lunar_phase_degrees') ||
-                    EntityValidator.validate(hass, 'sensor.moon_phase_degrees');
-                this._validatedEntities.moonDegrees = moonDegreesAlt;
-            } else {
-                this._validatedEntities.moonDegrees = EntityValidator.validate(hass, this._moonDegreesEntityId);
-            }
+            this._validatedEntities.moonAzimuth = this._resolveMoonEntity(hass, this._moonAzimuthEntityId, ['sensor.luna_lunar_azimuth', 'sensor.moon_azimuth']);
+            this._validatedEntities.moonElevation = this._resolveMoonEntity(hass, this._moonElevationEntityId, ['sensor.luna_lunar_elevation', 'sensor.moon_elevation']);
+            this._validatedEntities.moonPhase = this._resolveMoonEntity(hass, this._moonPhaseEntityId, ['sensor.luna_lunar_phase', 'sensor.moon_phase']);
+            this._validatedEntities.moonDegrees = this._resolveMoonEntity(hass, this._moonDegreesEntityId, ['sensor.luna_lunar_phase_degrees', 'sensor.moon_phase_degrees']);
         } catch (e) {
             console.error('[MeteoCard] _validateEntitiesFromHass:', e);
         }
     }
 
+    _resolveMoonEntity(hass, configured, fallbacks) {
+        if (configured) return EntityValidator.validate(hass, configured);
+        return fallbacks.reduce((found, id) => found || EntityValidator.validate(hass, id), null);
+    }
+
+    _ensureContent() {
+        if (this.content) return true;
+        this.content = this.querySelector('ha-card');
+        if (!this.content) {
+            this.innerHTML = `<ha-card></ha-card>`;
+            this.content = this.querySelector('ha-card');
+            if (!this.content) {
+                console.error('[MeteoCard] Failed to create ha-card content');
+                return false;
+            }
+        }
+        this.content.id = this._cardId;
+        this._injectStyles();
+        return true;
+    }
+
     setConfig(config) {
         try {
             if (!this._cardId) {
-                this._cardId = 'card_' + Math.random().toString(36).substr(2, 9);
+                this._cardId = 'card_' + Math.random().toString(36).substring(2, 11);
             }
 
             this._meteoConfig = new MeteoConfig(config);
@@ -1003,16 +989,7 @@ class MeteoCard extends HTMLElement {
                 moonDegrees: null
             };
 
-            if (!this.content) {
-                this.innerHTML = `<ha-card></ha-card>`;
-                this.content = this.querySelector('ha-card');
-                if (!this.content) {
-                    console.error('[MeteoCard] Failed to initialize content in setConfig');
-                    return;
-                }
-                this.content.id = this._cardId;
-                this._injectStyles();
-            }
+            if (!this._ensureContent()) return;
 
             if (this._isDemoLayerEnabled && !this._isDemoUIMaster) {
                 this._startSlaveListener();
@@ -1048,6 +1025,7 @@ class MeteoCard extends HTMLElement {
                 }
 
                 const retryData = () => {
+                    if (SingletonManager.getDemoState(this._singletonId) === 'running') return;
                     if (this._hass) {
                         this._validateEntitiesFromHass(this._hass);
                         const realData = this._realData();
@@ -1100,29 +1078,17 @@ class MeteoCard extends HTMLElement {
                 super.connectedCallback();
             }
 
-            if (!this.content) {
-                this.innerHTML = `<ha-card></ha-card>`;
-                this.content = this.querySelector('ha-card');
-                if (!this.content) {
-                    console.error('[MeteoCard] Failed to create content in connectedCallback');
-                    return;
-                }
-                this.content.id = this._cardId;
-                this._injectStyles();
-            }
+            if (!this._ensureContent()) return;
 
             this._lastEditMode = false;
-            this._editCheckInterval = setInterval(() => {
+            const checkEditMode = () => {
                 try {
                     const root = this.getRootNode();
                     if (!root || !root.host) return;
-
                     const lovelace = root.host.lovelace;
                     const isEditMode = lovelace?.editMode === true;
-
                     if (isEditMode !== this._lastEditMode) {
                         this._lastEditMode = isEditMode;
-
                         if (!isEditMode && this._initialized) {
                             const state = SingletonManager.getActualState(this._singletonId);
                             if (state && this.content && this.isConnected) {
@@ -1133,7 +1099,15 @@ class MeteoCard extends HTMLElement {
                 } catch (e) {
                     console.error('[MeteoCard] Edit mode check error:', e);
                 }
-            }, 500);
+            };
+            this._editModeHandler = checkEditMode;
+            window.addEventListener('ll-edit-mode-changed', checkEditMode);
+            // Slow fallback for environments where the event is not fired
+            this._editCheckInterval = setInterval(checkEditMode, 2000);
+
+            if (this._isDemoUIMaster && !this._demoRequest && SingletonManager.getDemoState(this._singletonId) === 'running') {
+                this._startDemo();
+            }
         } catch (e) {
             console.error('[MeteoCard] connectedCallback:', e);
         }
@@ -1141,6 +1115,10 @@ class MeteoCard extends HTMLElement {
 
     disconnectedCallback() {
         try {
+            if (this._editModeHandler) {
+                window.removeEventListener('ll-edit-mode-changed', this._editModeHandler);
+                this._editModeHandler = null;
+            }
             if (this._editCheckInterval) {
                 clearInterval(this._editCheckInterval);
                 this._editCheckInterval = null;
@@ -1216,6 +1194,7 @@ class MeteoCard extends HTMLElement {
                     const initialState = this._demoEngine.compute();
                     SingletonManager.setActualState(this._singletonId, initialState);
                 }
+                SingletonManager.startDemo(this._singletonId);
                 this._startDemo();
             }
 
@@ -1301,14 +1280,14 @@ class MeteoCard extends HTMLElement {
     }
 
     _clearStyleSheets() {
-        if (this.dynamicStyleSheet && this.dynamicStyleSheet.parentNode) {
+        if (this._dynamicStyleSheet && this._dynamicStyleSheet.parentNode) {
             try {
-                this.dynamicStyleSheet.parentNode.removeChild(this.dynamicStyleSheet);
+                this._dynamicStyleSheet.parentNode.removeChild(this._dynamicStyleSheet);
             } catch (e) {
                 console.warn('[MeteoCard] Error removing dynamicStyleSheet:', e);
             }
         }
-        this.dynamicStyleSheet = null;
+        this._dynamicStyleSheet = null;
 
         if (this._keyframesSheet && this._keyframesSheet.parentNode) {
             try {
@@ -1397,7 +1376,7 @@ class MeteoCard extends HTMLElement {
     }
 
     _safe(text) {
-        if (!text) return '';
+        if (text === null || text === undefined) return '?';
         const div = document.createElement('div');
         div.textContent = String(text);
         return div.innerHTML;
@@ -1416,7 +1395,8 @@ class MeteoCard extends HTMLElement {
             const wasDemoLayerEnabled = this._isDemoLayerEnabled;
             this._isDemoLayerEnabled = !!demoLayerExists;
 
-            const layersChanged = JSON.stringify(layers) !== JSON.stringify(this._lastLayers);
+            const layersChanged = layers.length !== this._lastLayers.length ||
+                layers.some((l, i) => l !== this._lastLayers[i]);
             this._lastLayers = [...layers];
 
             if (wasDemoLayerEnabled !== this._isDemoLayerEnabled) {
@@ -1435,11 +1415,16 @@ class MeteoCard extends HTMLElement {
                         const initialState = this._demoEngine.compute();
                         SingletonManager.setActualState(this._singletonId, initialState);
                     }
+                    SingletonManager.startDemo(this._singletonId);
                     this._startDemo();
+                    rawData = SingletonManager.getActualState(this._singletonId);
                 }
                 if (!shouldBeMaster && this._isDemoUIMaster) {
                     this._isDemoUIMaster = false;
                     this._stopDemo();
+                }
+                if (this._isDemoUIMaster && !this._demoRequest && SingletonManager.getDemoState(this._singletonId) === 'running') {
+                    this._startDemo();
                 }
             }
 
@@ -1453,7 +1438,10 @@ class MeteoCard extends HTMLElement {
             }
 
             if (!rawData && this._hass) {
-                rawData = this._realData();
+                const currentDemoState = SingletonManager.getDemoState(this._singletonId);
+                if (currentDemoState !== 'running') {
+                    rawData = this._realData();
+                }
             }
 
             if (!rawData) return;
@@ -1515,11 +1503,13 @@ class MeteoCard extends HTMLElement {
                 moonPhase: moonPhaseEntity?.state || 'Full Moon',
                 moonPhaseDegrees: parseFloat(moonDegreesEntity?.state) || 0,
                 rising: sunEntity.attributes?.rising === true,
-                simulatedHour: new Date().getHours() + (new Date().getMinutes() / 60),
+                simulatedHour: (() => { const n = new Date(); return n.getHours() + n.getMinutes() / 60; })(),
                 windSpeed
             };
 
-            SingletonManager.setActualState(this._singletonId, realDataState);
+            if (SingletonManager.getDemoState(this._singletonId) !== 'running') {
+                SingletonManager.setActualState(this._singletonId, realDataState);
+            }
 
             return realDataState;
         } catch (e) {
@@ -1556,7 +1546,10 @@ class MeteoCard extends HTMLElement {
             }
 
             if (sun && sun.parentNode && sharedState.sunPos.elevation >= 0) {
-                sun.innerHTML = this._sunSVG();
+                if (this._lastSunElevationForSVG !== sharedState.sunPos.elevation) {
+                    this._lastSunElevationForSVG = sharedState.sunPos.elevation;
+                    sun.innerHTML = this._sunSVG();
+                }
             }
 
             let lensFlare = this._domCache.lensFlare;
@@ -1568,7 +1561,10 @@ class MeteoCard extends HTMLElement {
             if (lensFlare && lensFlare.parentNode) {
                 if (sharedState.sunPos.elevation >= 0 && this._meteoConfig.get('sun.lens_flare.enabled')) {
                     const minuteOfDay = Math.floor(state.simulatedHour * 60);
-                    lensFlare.innerHTML = this._lensFlare(sharedState.sunPos, minuteOfDay);
+                    if (this._lastLensMinute !== minuteOfDay) {
+                        this._lastLensMinute = minuteOfDay;
+                        lensFlare.innerHTML = this._lensFlare(sharedState.sunPos, minuteOfDay);
+                    }
                 } else {
                     lensFlare.innerHTML = '';
                 }
@@ -1585,7 +1581,12 @@ class MeteoCard extends HTMLElement {
                 moon.style.left = `${sharedState.moonPos.left}%`;
                 moon.style.top = `${sharedState.moonPos.top}%`;
                 if (sharedState.moonPos.elevation >= 0) {
-                    moon.innerHTML = this._moonSVG(sharedState.moonPhase, !sharedState.isNight, sharedState.moonPhaseDegrees);
+                    if (this._lastMoonPhaseForSVG !== sharedState.moonPhase ||
+                        this._lastMoonPhaseDegreesForSVG !== sharedState.moonPhaseDegrees) {
+                        this._lastMoonPhaseForSVG = sharedState.moonPhase;
+                        this._lastMoonPhaseDegreesForSVG = sharedState.moonPhaseDegrees;
+                        moon.innerHTML = this._moonSVG(sharedState.moonPhase, !sharedState.isNight, sharedState.moonPhaseDegrees);
+                    }
                 }
             }
 
@@ -1656,7 +1657,7 @@ class MeteoCard extends HTMLElement {
         this._loadedKeyframes = condition;
 
         const keyframes = {
-            base: `@keyframes to-right { to { transform:translateX(calc(100vw + 500px)); } } @keyframes flash { 0%,90%,94%,100%{opacity:0;} 92%{opacity:0.4;} }`,
+            base: `@keyframes to-right { to { transform:translateX(calc(100vw + 500px)); } } @keyframes flash { 0%,90%,94%,100%{opacity:0;} 92%{opacity:0.4;} } @keyframes puff-drift { 0% { margin-left:calc(var(--pdrift) * -1); } 100% { margin-left:var(--pdrift); } }`,
             star: `@keyframes star { 0%,100%{opacity:1;} 50%{opacity:0.2;} }`,
             shot: `@keyframes shot { 0%{transform:rotate(45deg) translateX(-200px);opacity:0;} 1%{opacity:1;} 10%{transform:rotate(45deg) translateX(1200px);opacity:0;} 100%{opacity:0;} }`,
             rain: `@keyframes rain-fall { to { transform:translateY(110vh) skewX(-15deg); } }`,
@@ -1664,15 +1665,16 @@ class MeteoCard extends HTMLElement {
             fog: `@keyframes fog-boil { 0% { transform: scale(1) translateY(0); opacity: var(--fog-opacity-min); } 50% { opacity: var(--fog-opacity-max); } 100% { transform: scale(1.15) translateY(-20px); opacity: var(--fog-opacity-min); } }`
         };
 
-        let requiredKeyframes = keyframes.base;
         const conf = this._meteoConfig.get(`conditions.${condition}`) || this._meteoConfig.get('conditions.default');
+        const neededParts = new Set(['base']);
 
-        if (isNight && conf.stars) requiredKeyframes += keyframes.star + keyframes.shot;
-        if (conf.clouds && conf.clouds !== 'none') requiredKeyframes += keyframes.base;
-        if (conf.drops) requiredKeyframes += keyframes.rain;
-        if (conf.flakes) requiredKeyframes += keyframes.snow;
-        if (conf.fog) requiredKeyframes += keyframes.fog;
-        if (conf.lightning) requiredKeyframes += keyframes.base;
+        if (isNight && conf.stars) { neededParts.add('star'); neededParts.add('shot'); }
+        if (conf.drops) neededParts.add('rain');
+        if (conf.flakes) neededParts.add('snow');
+        if (conf.fog) neededParts.add('fog');
+
+        let requiredKeyframes = '';
+        for (const part of neededParts) requiredKeyframes += keyframes[part];
 
         if (!this._keyframesSheet) {
             this._keyframesSheet = document.createElement('style');
@@ -1722,7 +1724,7 @@ class MeteoCard extends HTMLElement {
 
     _renderAll(state) {
         try {
-            this.cloudCounter = 0;
+            this._cloudCounter = 0;
             const {
                 condition,
                 isNight,
@@ -1738,18 +1740,7 @@ class MeteoCard extends HTMLElement {
 
             this._cleanupEvents();
 
-            if (!this.content) {
-                this.content = this.querySelector('ha-card');
-                if (!this.content) {
-                    this.innerHTML = `<ha-card></ha-card>`;
-                    this.content = this.querySelector('ha-card');
-                    if (!this.content) {
-                        console.error('[MeteoCard] Failed to create content in _renderAll');
-                        return;
-                    }
-                    this.content.id = this._cardId;
-                }
-            }
+            if (!this._ensureContent()) return;
 
             while (this.content.firstChild) {
                 this.content.removeChild(this.content.firstChild);
@@ -1795,14 +1786,14 @@ class MeteoCard extends HTMLElement {
                 }
             });
 
-            if (this.dynamicStyleSheet && this.dynamicStyleSheet.parentNode) {
-                this.dynamicStyleSheet.parentNode.removeChild(this.dynamicStyleSheet);
+            if (this._dynamicStyleSheet && this._dynamicStyleSheet.parentNode) {
+                this._dynamicStyleSheet.parentNode.removeChild(this._dynamicStyleSheet);
             }
 
-            this.dynamicStyleSheet = document.createElement('style');
-            this.dynamicStyleSheet.setAttribute('data-meteo-dynamic', 'true');
-            this.dynamicStyleSheet.textContent = css.content;
-            this.appendChild(this.dynamicStyleSheet);
+            this._dynamicStyleSheet = document.createElement('style');
+            this._dynamicStyleSheet.setAttribute('data-meteo-dynamic', 'true');
+            this._dynamicStyleSheet.textContent = css.content;
+            this.appendChild(this._dynamicStyleSheet);
 
             this._cacheDOM();
             this._updateStaticDOM(state);
@@ -1968,11 +1959,6 @@ class MeteoCard extends HTMLElement {
 
     _renderLayer(layer, condition, isNight, sunPos, moonPos, moonPhase, rising, css, windSpeed, cond) {
         try {
-            const configuredLayers = this._meteoConfig.get('layers');
-            if (!Array.isArray(configuredLayers) || !configuredLayers.includes(layer)) {
-                return '';
-            }
-
             if (layer === 'sky') {
                 const nightContent = isNight ? `<div style="position:absolute; inset:0;">${this._stars(100, css)}${this._shootings(2, css)}</div>` : '';
                 return `<div class="sky-bg" style="position:absolute; inset:0; transition: background 3s ease-in-out;"></div>${nightContent}`;
@@ -1989,8 +1975,7 @@ class MeteoCard extends HTMLElement {
             const cloudRatio = cond.background_ratio || 0.5;
 
             if (layer === 'background') {
-                const bgHtml = this._clouds(cond.clouds, css, isNight, windSpeed, cloudRatio);
-                const bgCloudCount = (bgHtml.match(/class="[^"]*-cl-/g) || []).length;
+                const { html: bgHtml, count: bgCloudCount } = this._clouds(cond.clouds, css, isNight, windSpeed, cloudRatio);
                 const sharedState = SingletonManager.getSingleton(this._singletonId);
                 sharedState.bgCloudCount = bgCloudCount;
 
@@ -2006,8 +1991,7 @@ class MeteoCard extends HTMLElement {
                 let h = '';
                 if (cond.lightning) h += `<div class="lightning"></div>`;
 
-                const fgHtml = this._clouds(cond.clouds, css, isNight, windSpeed, (1 - cloudRatio));
-                const fgCloudCount = (fgHtml.match(/class="[^"]*-cl-/g) || []).length;
+                const { html: fgHtml, count: fgCloudCount } = this._clouds(cond.clouds, css, isNight, windSpeed, (1 - cloudRatio));
                 const sharedState = SingletonManager.getSingleton(this._singletonId);
                 sharedState.fgCloudCount = fgCloudCount;
                 h += fgHtml;
@@ -2134,13 +2118,11 @@ class MeteoCard extends HTMLElement {
 
                     if (!this._demoEngine) {
                         this._demoEngine = new DemoEngine(this._meteoConfig, this._singletonId);
-                        const initialState = this._demoEngine.compute();
-                        SingletonManager.setActualState(this._singletonId, initialState);
                     }
+                    const initialState = this._demoEngine.compute();
+                    SingletonManager.setActualState(this._singletonId, initialState);
 
-                    if (!this._demoRequest) {
-                        this._startDemo();
-                    }
+                    this._startDemo();
                 }
 
                 btn.classList.toggle('btn-play', newState !== 'running');
@@ -2333,7 +2315,7 @@ class MeteoCard extends HTMLElement {
         try {
             const [nc, pc, gr] = this._meteoConfig.get(`clouds.${type}`) || this._meteoConfig.get('clouds.low');
             const adjustedNc = Math.ceil(nc * ratio);
-            if (adjustedNc === 0) return '';
+            if (adjustedNc === 0) return { html: '', count: 0 };
 
             const anim = this._meteoConfig.get('clouds.animation');
             const minMargin = anim?.min_margin ?? 5;
@@ -2345,7 +2327,7 @@ class MeteoCard extends HTMLElement {
             const minSpacing = 100 / (adjustedNc + 1);
 
             for (let i = 0; i < adjustedNc; i++) {
-                const id = `${this._cardId}-cl-${this.cloudCounter++}`;
+                const id = `${this._cardId}-cl-${this._cloudCounter++}`;
                 const bs = 60 + Math.random() * 50;
                 const randomFactor = (Math.floor(Math.random() * 81) + 60) / 100;
                 const dur = (baseDuration * randomFactor).toFixed(2);
@@ -2367,15 +2349,19 @@ class MeteoCard extends HTMLElement {
                     const ph = Math.round(pw * 0.9);
                     const pl = Math.round((j * (85 / pc) + Math.random() * 10) * 100) / 100;
                     const pt = Math.round((Math.random() * (bs * 0.4) - bs * 0.2) * 100) / 100;
+                    const driftSign = j % 2 === 0 ? 1 : -1; // alterne avec/contre le vent
+                    const driftAmt = driftSign * Math.round(12 + Math.random() * 18); // 12–30px
+                    const driftDur = (parseFloat(dur) * (0.35 + Math.random() * 0.3)).toFixed(2);
+                    const driftDelay = (Math.random() * parseFloat(driftDur)).toFixed(2);
 
-                    puffs += `<div class="puff" style="width:${pw}px;height:${ph}px;left:${pl}%;top:${pt}px"></div>`;
+                    puffs += `<div class="puff" style="width:${pw}px;height:${ph}px;left:${pl}%;top:${pt}px;--pdrift:${driftAmt}px;animation:puff-drift ${driftDur}s linear infinite alternate;animation-delay:-${driftDelay}s"></div>`;
                 }
                 html += `<div class="${id}">${puffs}</div>`;
             }
-            return html;
+            return { html, count: adjustedNc };
         } catch (e) {
             console.error('[MeteoCard] _clouds:', e);
-            return '';
+            return { html: '', count: 0 };
         }
     }
 
@@ -2494,10 +2480,6 @@ class MeteoCard extends HTMLElement {
         if (s.includes('fog') || s.includes('mist')) return 'fog';
         if (s.includes('clear')) return 'clear-night';
         return 'sunny';
-    }
-
-    _safe(val) {
-        return val === undefined || val === null ? '?' : val;
     }
 
     _injectStyles() {
