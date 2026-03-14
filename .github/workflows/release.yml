@@ -23,8 +23,11 @@ jobs:
 
       - name: Build release zip
         run: |
-          cd dist
-          zip ../meteocss-card.zip meteocss-card.js
+          if [ -f "dist/meteocss-card.js" ]; then
+            cd dist && zip ../meteocss-card.zip meteocss-card.js
+          else
+            zip meteocss-card.zip meteocss-card.js
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
