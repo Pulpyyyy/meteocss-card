@@ -1,4 +1,14 @@
-console.info("%c 🙂 MeteoCSS Card %c v2.0.3 %c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
+console.info("%c 🙂 MeteoCSS Card %c v3.0.0%c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
+
+const _genId = () => {
+    try {
+        // 122 bits of randomness, universally unique — preferred over Math.random().
+        return crypto.randomUUID().replace(/-/g, '');
+    } catch {
+        // Fallback for environments that don't expose crypto.randomUUID.
+        return Math.random().toString(36).substring(2, 11) + Math.random().toString(36).substring(2, 11);
+    }
+};
 
 const CARD_CONFIG = {
     type: 'meteo-card',
@@ -9,6 +19,16 @@ const CARD_CONFIG = {
 
 const METEO_SINGLETONS = {};
 
+// Adopted StyleSheet shared across all instances — created only once.
+let _meteoSharedSheet = null;
+
+/**
+ * Manages shared state between multiple MeteoCard instances that belong to the
+ * same logical group (identified by a singletonId). Handles demo lifecycle
+ * (start / pause / stop), master election (which card drives the demo loop and
+ * which drives the data fetch), and card registration / unregistration.
+ * All methods are static — the class acts as a namespace over the METEO_SINGLETONS map.
+ */
 class SingletonManager {
     static getSingleton(singletonId) {
         if (!METEO_SINGLETONS[singletonId]) {
@@ -73,7 +93,7 @@ class SingletonManager {
         }
 
         const currentMaster = singleton.demoUIMaster;
-        const masterExists = currentMaster && document.getElementById(currentMaster);
+        const masterExists = currentMaster && singleton.registeredCards.has(currentMaster);
 
         if (!masterExists) {
             singleton.demoUIMaster = cardId;
@@ -99,7 +119,7 @@ class SingletonManager {
         }
 
         const currentDataMaster = singleton.dataMaster;
-        if (currentDataMaster && !document.getElementById(currentDataMaster)) {
+        if (currentDataMaster && !singleton.registeredCards.has(currentDataMaster)) {
             singleton.dataMaster = cardId;
             return true;
         }
@@ -158,6 +178,14 @@ class SingletonManager {
     }
 }
 
+/**
+ * Computes a synthetic weather state for the demo / preview mode.
+ * Each call to compute() advances an internal time offset and returns a
+ * MeteoState-compatible object that simulates a full 24-hour day cycle
+ * compressed into 60 seconds, cycling through all available weather conditions.
+ * Sun and moon positions are derived from a simplified orbital model;
+ * wind speed and moon phase are animated trigonometrically.
+ */
 class DemoEngine {
     constructor(config, singletonId) {
         this.config = config;
@@ -174,6 +202,7 @@ class DemoEngine {
         }
         shared.lastUpdateTimestamp = now;
 
+        // One full demo cycle lasts 60 seconds, compressing a full day into one minute.
         const totalDuration = 60000;
         const prog = (shared.demoTimeOffset % totalDuration) / totalDuration;
         const hour = prog * 24;
@@ -191,13 +220,15 @@ class DemoEngine {
         }
 
         const sunAzimuth = (hour / 24) * 360;
-        const sunElevation = 35 * Math.sin((hour - 6) * Math.PI / 12);
+        const sunElevation = 85 * Math.sin((hour - 6) * Math.PI / 12);
         const sunPos = this._getCoords(sunAzimuth, sunElevation);
         const moonPos = this._getCoords((sunAzimuth + 180) % 360, -sunElevation);
 
-        const moonCycleIndex = Math.floor((prog * this.moonPhases.length) % this.moonPhases.length);
+        const phasePeriod = totalDuration * 0.5;
+        const phaseProgress = (shared.demoTimeOffset % phasePeriod) / phasePeriod;
+        const moonCycleIndex = Math.floor(phaseProgress * this.moonPhases.length) % this.moonPhases.length;
         const moonPhase = this.moonPhases[moonCycleIndex];
-        const moonPhaseDegrees = (prog * this.moonPhases.length * 360) % 360;
+        const moonPhaseDegrees = (phaseProgress * this.moonPhases.length * 360) % 360;
 
         const windSpeed = 15 + Math.abs(Math.sin(prog * Math.PI * 2)) * 65;
 
@@ -222,6 +253,13 @@ class DemoEngine {
     }
 }
 
+/**
+ * Converts astronomical coordinates (azimuth + elevation in degrees) into
+ * CSS percentage positions (left / top) on the card surface.
+ * The projection accounts for the configurable orbital ellipse (rx, ry, cx, cy),
+ * an optional tilt angle, the house orientation angle, and azimuth inversion.
+ * All methods are static — instantiation is never needed.
+ */
 class MeteoCoordsCalculator {
     static getCoords(azimuth, elevation, config) {
         try {
@@ -264,25 +302,22 @@ class MeteoCoordsCalculator {
         };
     }
 
+    // Reads a value from either a MeteoConfig instance (via .get()) or a plain object.
+    static _readConfig(config, key, defaultValue) {
+        const val = typeof config?.get === 'function' ? config.get(key) : config?.[key];
+        return val ?? defaultValue;
+    }
+
     static _getOrbit(config) {
-        if (typeof config?.get === 'function') {
-            return config.get('orbit') || this._defaultOrbit();
-        }
-        return config?.orbit || this._defaultOrbit();
+        return this._readConfig(config, 'orbit', null) || this._defaultOrbit();
     }
 
     static _getHouseAngle(config) {
-        if (typeof config?.get === 'function') {
-            return config.get('house_angle') ?? 25;
-        }
-        return config?.house_angle ?? 25;
+        return this._readConfig(config, 'house_angle', 25);
     }
 
     static _getInvertAzimuth(config) {
-        if (typeof config?.get === 'function') {
-            return config.get('invert_azimuth') ?? false;
-        }
-        return config?.invert_azimuth ?? false;
+        return this._readConfig(config, 'invert_azimuth', false);
     }
 
     static _defaultOrbit() {
@@ -324,6 +359,13 @@ class MeteoCoordsCalculator {
 }
 
 
+/**
+ * Validates Home Assistant entity objects before they are used by MeteoCard.
+ * Checks that the entity exists in hass.states, that required attributes are
+ * present, and that numeric attributes fall within expected bounds.
+ * Returns the entity on success or null on any validation failure, keeping
+ * rendering code free of defensive null-checks against raw HA data.
+ */
 class EntityValidator {
     static validate(hass, entityId, schema = {}) {
         if (!hass || typeof hass !== 'object') {
@@ -386,6 +428,12 @@ class EntityValidator {
     }
 }
 
+/**
+ * Immutable-style data transfer object that holds the current weather state
+ * consumed by the rendering pipeline. Normalises raw data (from real HA entities
+ * or from DemoEngine) into a single, consistent shape with safe defaults, so
+ * rendering methods never need to guard against missing or undefined fields.
+ */
 class MeteoState {
     constructor(data = {}) {
         this.condition = data.condition || 'sunny';
@@ -411,6 +459,14 @@ class MeteoState {
     }
 }
 
+/**
+ * Holds the resolved card configuration, merging user-supplied YAML values over
+ * a comprehensive set of built-in defaults (DEFAULTS). Deep merge ensures nested
+ * objects like sun, moon, clouds, colors, and conditions can be partially
+ * overridden without losing unmentioned keys.
+ * Values are accessed via get(dotted.path) to avoid scattered optional-chain
+ * gymnastics throughout rendering code.
+ */
 class MeteoConfig {
     static DEFAULTS = {
         weather: 'weather.home',
@@ -513,6 +569,13 @@ class MeteoConfig {
             blur: 15,
             height: 180,
             count: 4
+        },
+        shadow: {
+            depthmap: null,
+            bias: 0.003,
+            step: 0.002,
+            ambient: 0.2,
+            intensity: 0.7
         },
         colors: {
             night: {
@@ -642,6 +705,14 @@ class MeteoConfig {
     }
 }
 
+/**
+ * LRU (Least Recently Used) cache for MeteoCoordsCalculator results.
+ * Coordinate projection involves trigonometry that is called every animation
+ * frame; caching avoids redundant computation when azimuth and elevation have
+ * not changed. The cache is keyed on rounded (azimuth:elevation) pairs and
+ * evicts the oldest entry once it reaches MAX_SIZE entries.
+ * One instance lives per MeteoCard and is cleared whenever the sun moves.
+ */
 class CoordsCache {
     static MAX_SIZE = 200;
 
@@ -674,8 +745,15 @@ class CoordsCache {
     }
 }
 
+/**
+ * Single shared requestAnimationFrame loop used by all slave MeteoCard instances
+ * (cards that mirror the state computed by the demo-master). Instead of each
+ * slave running its own rAF loop, they all register here so the browser schedules
+ * a single callback per frame. Cards are automatically unregistered when they
+ * disconnect or scroll off-screen (via IntersectionObserver), and the loop stops
+ * entirely when no cards remain registered.
+ */
 class SharedAnimationLoop {
-    static instance = null;
     static registeredCards = new Set();
     static rafId = null;
     static isRunning = false;
@@ -713,7 +791,6 @@ class SharedAnimationLoop {
         const loop = () => {
             try {
                 const currentTime = Date.now();
-                const deltaTime = currentTime - SharedAnimationLoop.lastFrameTime;
                 SharedAnimationLoop.lastFrameTime = currentTime;
 
                 const cardsToUpdate = Array.from(SharedAnimationLoop.registeredCards);
@@ -759,10 +836,26 @@ class SharedAnimationLoop {
     }
 }
 
+/**
+ * Main custom element (<meteo-card>) registered with the Home Assistant Lovelace
+ * dashboard. Responsible for the full lifecycle of the weather card:
+ *  - setConfig(): parses YAML config, elects demo/data master via SingletonManager,
+ *    and performs the initial render.
+ *  - hass setter: receives live HA state updates, validates entities, throttles
+ *    redundant renders, and delegates to _update().
+ *  - _renderAll(): full DOM rebuild into a DocumentFragment (prevents flash-of-
+ *    unstyled content), injects CSS via Adopted StyleSheets or a <style> fallback.
+ *  - _updateDynamic(): lightweight per-frame update that mutates only changed
+ *    attributes (position, rotation, opacity) without touching the full DOM.
+ *  - Demo mode: the elected UI master runs DemoEngine in a rAF loop; slaves
+ *    mirror the shared state via SharedAnimationLoop.
+ * Uses a Shadow DOM to isolate styles while still inheriting CSS custom properties
+ * from the HA theme.
+ */
 class MeteoCard extends HTMLElement {
     constructor() {
         super();
-        this._cardId = 'meteo-' + Math.random().toString(36).substring(2, 11);
+        this._cardId = 'meteo-' + _genId();
         this._singletonId = null;
         this._sharedState = null;
         this._isDemoUIMaster = false;
@@ -810,6 +903,17 @@ class MeteoCard extends HTMLElement {
         this._lastLensMinute = null;
         this._lastDemoUIUpdate = 0;
         this._editModeHandler = null;
+        // Cached references for demo UI hot-path (avoid querySelector every frame).
+        this._demoCacheStats = null;
+        this._demoCacheBtn   = null;
+        this._demoCacheSelect = null;
+        // IntersectionObserver: pause SharedAnimationLoop when off-screen.
+        this._visibilityObserver = null;
+        this._isVisible = true;
+        this._isSlaveListening = false;
+        // Open shadow root once — all internal DOM lives here, isolating CSS
+        // from HA global themes while CSS custom properties still penetrate.
+        this.attachShadow({ mode: 'open' });
     }
 
     set hass(hass) {
@@ -848,16 +952,20 @@ class MeteoCard extends HTMLElement {
             this._lastHassUpdate = now;
 
             const newWeatherState = hass.states[this._weatherEntityId]?.state;
-            const newSunAzimuth = hass.states[this._sunEntityId]?.attributes?.azimuth;
+            const sunAttrs = hass.states[this._sunEntityId]?.attributes;
+            const newSunAzimuth   = sunAttrs?.azimuth;
+            const newSunElevation = sunAttrs?.elevation;
 
             if (this._initialized &&
-                this._previousStates.weather === newWeatherState &&
-                this._previousStates.azimuth === newSunAzimuth) {
+                this._previousStates.weather   === newWeatherState &&
+                this._previousStates.azimuth   === newSunAzimuth   &&
+                this._previousStates.elevation === newSunElevation) {
                 return;
             }
 
-            this._previousStates.weather = newWeatherState;
-            this._previousStates.azimuth = newSunAzimuth;
+            this._previousStates.weather   = newWeatherState;
+            this._previousStates.azimuth   = newSunAzimuth;
+            this._previousStates.elevation = newSunElevation;
 
             if (this._validatedEntities.weather === null) {
                 this._validateEntitiesFromHass(hass);
@@ -909,16 +1017,24 @@ class MeteoCard extends HTMLElement {
     }
 
     _resolveMoonEntity(hass, configured, fallbacks) {
+        // Use the explicitly configured entity, or fall back to the first valid entity from the fallback list.
         if (configured) return EntityValidator.validate(hass, configured);
         return fallbacks.reduce((found, id) => found || EntityValidator.validate(hass, id), null);
     }
 
     _ensureContent() {
         if (this.content) return true;
-        this.content = this.querySelector('ha-card');
+        // Safe to access this.style here — element is being adopted into a document
+        if (!this._opacityInitialized) {
+            this._opacityInitialized = true;
+            this.style.opacity = '0';
+            this.style.transition = 'opacity 0.25s ease-out';
+        }
+        this.content = this.shadowRoot.querySelector('ha-card');
         if (!this.content) {
-            this.innerHTML = `<ha-card></ha-card>`;
-            this.content = this.querySelector('ha-card');
+            const card = document.createElement('ha-card');
+            this.shadowRoot.appendChild(card);
+            this.content = card;
             if (!this.content) {
                 console.error('[MeteoCard] Failed to create ha-card content');
                 return false;
@@ -932,24 +1048,17 @@ class MeteoCard extends HTMLElement {
     setConfig(config) {
         try {
             if (!this._cardId) {
-                this._cardId = 'card_' + Math.random().toString(36).substring(2, 11);
+                this._cardId = 'card_' + _genId();
             }
 
             this._meteoConfig = new MeteoConfig(config);
+            this._sunSVGCache = null;
 
             const layers = this._meteoConfig.get('layers') || [];
             const demoLayer = layers.find(l => typeof l === 'string' && l.startsWith('demo_mode'));
 
-            if (config.singleton_id) {
-                this._singletonId = config.singleton_id;
-                SingletonManager.getSingleton(this._singletonId);
-            } else if (demoLayer) {
-                this._singletonId = demoLayer;
-                SingletonManager.getSingleton(this._singletonId);
-            } else {
-                this._singletonId = this._cardId;
-                SingletonManager.getSingleton(this._singletonId);
-            }
+            this._singletonId = config.singleton_id || demoLayer || this._cardId;
+            SingletonManager.getSingleton(this._singletonId);
 
             this._isDemoLayerEnabled = !!demoLayer;
 
@@ -1052,14 +1161,22 @@ class MeteoCard extends HTMLElement {
             this._slaveListenerRequest = undefined;
         }
 
-        SharedAnimationLoop.register(this);
+        this._isSlaveListening = true;
+        // Only register in the animation loop if the card is currently visible.
+        if (this._isVisible) {
+            SharedAnimationLoop.register(this);
+        }
     }
 
     _stopSlaveListener() {
+        this._isSlaveListening = false;
         SharedAnimationLoop.unregister(this);
         this._slaveListenerRequest = undefined;
     }
 
+    // Entry point called by SharedAnimationLoop every rAF frame for slave cards.
+    // The isConnected guard prevents stale updates on cards that disconnected
+    // between the rAF schedule and its execution.
     _updateOptimized() {
         try {
             if (!this.isConnected) {
@@ -1079,6 +1196,40 @@ class MeteoCard extends HTMLElement {
             }
 
             if (!this._ensureContent()) return;
+
+            // On reconnect (e.g. switching HA views back), re-register in singleton
+            // and force the next hass update to re-render, bypassing stale throttle/flags.
+            if (this._singletonId && this._meteoConfig) {
+                const singleton = SingletonManager.getSingleton(this._singletonId);
+                if (!singleton.registeredCards.has(this._cardId)) {
+                    SingletonManager.registerCard(this._singletonId, this._cardId);
+                    this._registeredInSingleton = true;
+                }
+                // Reset flags so next hass setter triggers a full re-render.
+                this._initialized = false;
+                this._lastHassUpdate = 0;
+                this._lastCondition = null;
+                this._lastNight = null;
+                this._lastDemoState = null;
+                this._previousStates = {};
+                // Reset demo master flag so _update() re-elects and restarts the demo
+                // (new singleton has demoState='stopped', so the flag must be cleared
+                //  to enter the election branch that calls SingletonManager.startDemo).
+                if (this._isDemoLayerEnabled) {
+                    this._isDemoUIMaster = false;
+                }
+                // Re-attach demo control listeners (removed by _cleanupAllListeners
+                // on disconnect, but _demoControlsCreated prevents DOM recreation).
+                if (this._demoControlsCreated) {
+                    this._attachDemoListeners();
+                }
+                // Restart slave listener if needed.
+                if (this._isDemoLayerEnabled && !this._isDemoUIMaster) {
+                    this._startSlaveListener();
+                } else if (!this._isDemoLayerEnabled && singleton.registeredCards.size > 1) {
+                    this._startSlaveListener();
+                }
+            }
 
             this._lastEditMode = false;
             const checkEditMode = () => {
@@ -1108,6 +1259,27 @@ class MeteoCard extends HTMLElement {
             if (this._isDemoUIMaster && !this._demoRequest && SingletonManager.getDemoState(this._singletonId) === 'running') {
                 this._startDemo();
             }
+
+            // Pause all animation when the card scrolls off-screen, resume when it returns.
+            // threshold:0 fires as soon as a single pixel enters/leaves the viewport.
+            this._isVisible = true;
+            this._visibilityObserver = new IntersectionObserver(entries => {
+                this._isVisible = entries[0].isIntersecting;
+                if (this._isVisible) {
+                    // Resume slave sync loop.
+                    if (this._isSlaveListening) SharedAnimationLoop.register(this);
+                    // Resume demo master rAF loop if the demo is still running.
+                    if (this._isDemoUIMaster && !this._demoRequest &&
+                        SingletonManager.getDemoState(this._singletonId) === 'running') {
+                        this._startDemo();
+                    }
+                } else {
+                    SharedAnimationLoop.unregister(this);
+                    // Suspend demo master rAF loop — does not reset demo state or time offset.
+                    if (this._isDemoUIMaster) this._stopDemo();
+                }
+            }, { threshold: 0 });
+            this._visibilityObserver.observe(this);
         } catch (e) {
             console.error('[MeteoCard] connectedCallback:', e);
         }
@@ -1115,6 +1287,11 @@ class MeteoCard extends HTMLElement {
 
     disconnectedCallback() {
         try {
+            if (this._visibilityObserver) {
+                this._visibilityObserver.disconnect();
+                this._visibilityObserver = null;
+            }
+
             if (this._editModeHandler) {
                 window.removeEventListener('ll-edit-mode-changed', this._editModeHandler);
                 this._editModeHandler = null;
@@ -1131,6 +1308,7 @@ class MeteoCard extends HTMLElement {
 
             SharedAnimationLoop.unregister(this);
             SingletonManager.unregisterCard(this._singletonId, this._cardId);
+            this._registeredInSingleton = false;
             this._cleanup();
 
             if (super.disconnectedCallback) {
@@ -1141,11 +1319,15 @@ class MeteoCard extends HTMLElement {
         }
     }
 
+    // Clears all render caches and performs a full re-render from a given state.
+    // Called when Lovelace exits edit mode to discard any DOM mutations the editor
+    // may have introduced during the editing session.
     _forceRerender(state) {
         try {
             if (!this.content) {
-                this.innerHTML = `<ha-card></ha-card>`;
-                this.content = this.querySelector('ha-card');
+                const card = document.createElement('ha-card');
+                this.shadowRoot.appendChild(card);
+                this.content = card;
                 if (!this.content) return;
             }
 
@@ -1161,6 +1343,9 @@ class MeteoCard extends HTMLElement {
         }
     }
 
+    // Promotes this card to data master if the current master has gone away
+    // (e.g. disconnected without unregistering). Guards against a singleton
+    // group being left with real data updates blocked because no master exists.
     _recheckMaster() {
         const singleton = SingletonManager.getSingleton(this._singletonId);
         if (!singleton.dataMaster || !singleton.registeredCards.has(singleton.dataMaster)) {
@@ -1218,10 +1403,19 @@ class MeteoCard extends HTMLElement {
         };
     }
 
+    static getStubConfig() {
+        return {
+            weather: 'weather.home',
+            sun_entity: 'sun.sun',
+            layers: ['sky', 'sun', 'moon', 'background', 'foreground']
+        };
+    }
+
     _cleanup() {
         this._stopSlaveListener();
         this._stopDemo();
         this._cleanupAllListeners();
+        this._cleanupShadow();
         this._clearDOMCache();
         this._coordsCache.clear();
         this._demoListeners = [];
@@ -1241,19 +1435,19 @@ class MeteoCard extends HTMLElement {
         this._demoListeners = [];
 
         if (this._boundPlayPauseFn) {
-            const btn = this.querySelector('#btn-toggle-demo');
+            const btn = this.shadowRoot.querySelector('#btn-toggle-demo');
             if (btn) btn.removeEventListener('click', this._boundPlayPauseFn);
             this._boundPlayPauseFn = null;
         }
 
         if (this._boundStopFn) {
-            const stopBtn = this.querySelector('#btn-stop-demo');
+            const stopBtn = this.shadowRoot.querySelector('#btn-stop-demo');
             if (stopBtn) stopBtn.removeEventListener('click', this._boundStopFn);
             this._boundStopFn = null;
         }
 
         if (this._boundSelectFn) {
-            const select = this.querySelector('#select-demo-condition');
+            const select = this.shadowRoot.querySelector('#select-demo-condition');
             if (select) select.removeEventListener('change', this._boundSelectFn);
             this._boundSelectFn = null;
         }
@@ -1275,7 +1469,8 @@ class MeteoCard extends HTMLElement {
             sunWrapper: null,
             sunContainer: null,
             moonContainer: null,
-            lensFlare: null
+            lensFlare: null,
+            shadowCanvas: null
         };
     }
 
@@ -1298,7 +1493,13 @@ class MeteoCard extends HTMLElement {
         }
         this._keyframesSheet = null;
 
-        const injectedStyle = this.querySelector('style[data-meteo-injected]');
+        // Adopted StyleSheets path: remove the shared sheet from this shadow root.
+        if (_meteoSharedSheet && this.shadowRoot.adoptedStyleSheets.includes(_meteoSharedSheet)) {
+            this.shadowRoot.adoptedStyleSheets = this.shadowRoot.adoptedStyleSheets.filter(s => s !== _meteoSharedSheet);
+        }
+
+        // Fallback path: remove the injected <style> element if present.
+        const injectedStyle = this.shadowRoot.querySelector('style[data-meteo-injected]');
         if (injectedStyle && injectedStyle.parentNode) {
             try {
                 injectedStyle.parentNode.removeChild(injectedStyle);
@@ -1312,6 +1513,7 @@ class MeteoCard extends HTMLElement {
         this._stopDemo();
 
         const demoStartTime = Date.now();
+        // Auto-stop demo after 10 minutes to avoid running indefinitely.
         const demoDuration = 10 * 60 * 1000;
         let frameCount = 0;
 
@@ -1376,6 +1578,7 @@ class MeteoCard extends HTMLElement {
     }
 
     _safe(text) {
+        // Escape HTML to prevent XSS when inserting dynamic strings into innerHTML.
         if (text === null || text === undefined) return '?';
         const div = document.createElement('div');
         div.textContent = String(text);
@@ -1383,7 +1586,7 @@ class MeteoCard extends HTMLElement {
     }
 
     _getCoords(azimuth, elevation) {
-        return MeteoCoordsCalculator.getCoords(azimuth, elevation, this._meteoConfig); // ✅ CORRECT
+        return MeteoCoordsCalculator.getCoords(azimuth, elevation, this._meteoConfig);
     }
 
     _update() {
@@ -1527,100 +1730,93 @@ class MeteoCard extends HTMLElement {
             const sharedState = SingletonManager.getSingleton(this._singletonId);
             this._updateSharedState(state);
 
-            let sunWrapper = this._domCache.sunWrapper;
-            if (!sunWrapper || !sunWrapper.parentNode) {
-                sunWrapper = this.content.querySelector('.sun-wrapper');
-                if (sunWrapper) this._domCache.sunWrapper = sunWrapper;
-            }
+            // In demo mode positions change every frame — skip SVG caches entirely.
+            const isDemo = SingletonManager.getDemoState(this._singletonId) === 'running';
 
-            if (sunWrapper && sunWrapper.parentNode) {
-                sunWrapper.style.display = sharedState.sunPos.elevation >= 0 ? 'block' : 'none';
-                sunWrapper.style.left = `${sharedState.sunPos.left}%`;
-                sunWrapper.style.top = `${sharedState.sunPos.top}%`;
-            }
+            const sunWrapper = this._getCachedEl('sunWrapper', '.sun-wrapper');
+            if (sunWrapper) this._positionCelestialBody(sunWrapper, sharedState.sunPos);
 
-            let sun = this._domCache.sunContainer;
-            if (!sun || !sun.parentNode) {
-                sun = this.content.querySelector('.sun-container');
-                if (sun) this._domCache.sunContainer = sun;
-            }
+            const sun = this._getCachedEl('sunContainer', '.sun-container');
 
             if (sun && sun.parentNode && sharedState.sunPos.elevation >= 0) {
-                if (this._lastSunElevationForSVG !== sharedState.sunPos.elevation) {
+                // _sunSVG() depends only on config — regenerate only when the
+                // container is empty (sun rising above horizon after being hidden).
+                if (!sun.firstChild) {
                     this._lastSunElevationForSVG = sharedState.sunPos.elevation;
                     sun.innerHTML = this._sunSVG();
                 }
+            } else if (sun && sun.parentNode && sharedState.sunPos.elevation < 0) {
+                if (sun.firstChild) sun.innerHTML = '';
             }
 
-            let lensFlare = this._domCache.lensFlare;
-            if (!lensFlare || !lensFlare.parentNode) {
-                lensFlare = this.content.querySelector('.lens-flare');
-                if (lensFlare) this._domCache.lensFlare = lensFlare;
-            }
+            const lensFlare = this._getCachedEl('lensFlare', '.lens-flare');
 
             if (lensFlare && lensFlare.parentNode) {
                 if (sharedState.sunPos.elevation >= 0 && this._meteoConfig.get('sun.lens_flare.enabled')) {
-                    const minuteOfDay = Math.floor(state.simulatedHour * 60);
-                    if (this._lastLensMinute !== minuteOfDay) {
-                        this._lastLensMinute = minuteOfDay;
-                        lensFlare.innerHTML = this._lensFlare(sharedState.sunPos, minuteOfDay);
+                    const rotation = this._lensFlareRotation(sharedState.sunPos, isDemo);
+                    const elevationOpacity = Math.max(0, Math.min(1, (sharedState.sunPos.elevation + 5) / 20));
+                    if (!lensFlare.firstChild) {
+                        // First paint: full SVG generation.
+                        lensFlare.innerHTML = this._lensFlare(sharedState.sunPos, rotation);
+                    } else {
+                        // Subsequent updates in both normal and demo mode: mutate only
+                        // the attributes that change — no SVG reparse, no DOM rebuild.
+                        const g = lensFlare.querySelector('g');
+                        if (g) {
+                            g.setAttribute('transform', `translate(450, 450) rotate(${rotation})`);
+                            g.setAttribute('opacity', elevationOpacity);
+                        }
                     }
                 } else {
                     lensFlare.innerHTML = '';
                 }
             }
 
-            let moon = this._domCache.moonContainer;
-            if (!moon || !moon.parentNode) {
-                moon = this.content.querySelector('.moon-container');
-                if (moon) this._domCache.moonContainer = moon;
-            }
-
-            if (moon && moon.parentNode) {
-                moon.style.display = sharedState.moonPos.elevation >= 0 ? 'block' : 'none';
-                moon.style.left = `${sharedState.moonPos.left}%`;
-                moon.style.top = `${sharedState.moonPos.top}%`;
+            const moon = this._getCachedEl('moonContainer', '.moon-container');
+            if (moon) {
+                this._positionCelestialBody(moon, sharedState.moonPos);
                 if (sharedState.moonPos.elevation >= 0) {
-                    if (this._lastMoonPhaseForSVG !== sharedState.moonPhase ||
-                        this._lastMoonPhaseDegreesForSVG !== sharedState.moonPhaseDegrees) {
+                    const phaseChanged = this._lastMoonPhaseForSVG !== sharedState.moonPhase;
+                    const degsChanged  = this._lastMoonPhaseDegreesForSVG !== sharedState.moonPhaseDegrees;
+                    if (!moon.firstChild || phaseChanged) {
+                        // Phase string changed (mask path shape changes) or first paint:
+                        // full rebuild required.
                         this._lastMoonPhaseForSVG = sharedState.moonPhase;
                         this._lastMoonPhaseDegreesForSVG = sharedState.moonPhaseDegrees;
                         moon.innerHTML = this._moonSVG(sharedState.moonPhase, !sharedState.isNight, sharedState.moonPhaseDegrees);
+                    } else if (degsChanged) {
+                        // Only rotation changed: mutate the three attribute groups
+                        // that depend on moonPhaseDegrees, no SVG reparse.
+                        this._lastMoonPhaseDegreesForSVG = sharedState.moonPhaseDegrees;
+                        const deg = sharedState.moonPhaseDegrees;
+                        const svg = moon.querySelector('svg');
+                        if (svg) {
+                            const maskG = svg.querySelector('mask g');
+                            if (maskG) maskG.setAttribute('transform', `translate(150,150) rotate(${deg})`);
+                            const distLight = svg.querySelector('feDistantLight');
+                            if (distLight) distLight.setAttribute('azimuth', deg);
+                            const grad3d = svg.querySelectorAll('radialGradient')[1];
+                            if (grad3d) {
+                                grad3d.setAttribute('cx', `${40 + Math.cos(deg * Math.PI / 180) * 15}%`);
+                                grad3d.setAttribute('cy', `${40 + Math.sin(deg * Math.PI / 180) * 15}%`);
+                            }
+                            svg.querySelectorAll('[transform*="150 150"]').forEach(el => {
+                                el.setAttribute('transform', `rotate(${deg} 150 150)`);
+                            });
+                        }
                     }
                 }
             }
 
-            let sky = this._domCache.skyBg;
-            if (!sky || !sky.parentNode) {
-                sky = this.content.querySelector('.sky-bg');
-                if (sky) this._domCache.skyBg = sky;
-            }
-
-            if (sky && sky.parentNode) {
-                let fPos = sharedState.isNight ? sharedState.moonPos : sharedState.sunPos;
+            const sky = this._getCachedEl('skyBg', '.sky-bg');
+            if (sky) {
                 const conf = this._meteoConfig.get(`conditions.${sharedState.condition}`);
-                const sunConf = this._meteoConfig.get('sun');
-                const srLimits = [...sunConf.sunrise_limits].sort((a, b) => a - b);
-                const ssLimits = [...sunConf.sunset_limits].sort((a, b) => a - b);
-
-                let colors;
-                if (sharedState.rising && sharedState.sunPos.elevation >= srLimits[0] && sharedState.sunPos.elevation <= srLimits[1]) {
-                    fPos = sharedState.sunPos;
-                    colors = this._meteoConfig.get('colors.sunrise');
-                } else if (!sharedState.rising && sharedState.sunPos.elevation >= ssLimits[0] && sharedState.sunPos.elevation <= ssLimits[1]) {
-                    fPos = sharedState.sunPos;
-                    colors = this._meteoConfig.get('colors.sunset');
-                } else {
-                    if (sharedState.isNight) {
-                        colors = this._meteoConfig.get(`colors.night.${conf.night_sky}`);
-                    } else {
-                        colors = this._meteoConfig.get(`colors.day.${conf.day_sky}`);
-                    }
-                }
-
-                sky.style.background = `radial-gradient(circle at ${fPos.left}% ${fPos.top}%, ${colors})`;
+                sky.style.background = this._computeSkyBackground(
+                    sharedState.sunPos, sharedState.moonPos, sharedState.isNight, sharedState.rising, conf
+                );
             }
 
+            this._updateShadow();
             this._updateDemoUI();
         } catch (e) {
             console.error('[MeteoCard] _updateDynamic:', e);
@@ -1632,12 +1828,34 @@ class MeteoCard extends HTMLElement {
         const demoState = SingletonManager.getDemoState(this._singletonId);
         const isRunning = demoState === 'running';
 
-        const statsContainer = this.querySelector('.demo-stats-inner');
+        const statsContainer = this._demoCacheStats || this.shadowRoot.querySelector('.demo-stats-inner');
         if (statsContainer) {
-            statsContainer.innerHTML = this._demoUI();
+            if (!statsContainer.firstChild) {
+                // First paint: full build.
+                statsContainer.innerHTML = this._demoUI();
+            } else {
+                // Subsequent updates: mutate only the value spans — no HTML reparse.
+                const set = (key, val) => {
+                    const el = statsContainer.querySelector(`[data-stat="${key}"]`);
+                    if (el && el.textContent !== val) el.textContent = val;
+                };
+                const s  = SingletonManager.getSingleton(this._singletonId);
+                const sh = s.actualState || {};
+                set('state',   s.demoState.toUpperCase());
+                set('time',    this._formatTime(sh.simulatedHour || 0));
+                set('weather', (sh.condition || '').toUpperCase());
+                set('wind',    `${(sh.windSpeed || 0).toFixed(1)} km/h`);
+                set('sun',     `${(sh.sunPos?.elevation || 0).toFixed(1)}° | ${(sh.sunPos?.azimuth || 0).toFixed(1)}°`);
+                set('moon',    `${(sh.moonPos?.elevation || 0).toFixed(1)}° | ${(sh.moonPos?.azimuth || 0).toFixed(1)}°`);
+                set('phase',   `${this._safe(sh.moonPhase)} | ${(sh.moonPhaseDegrees || 0).toFixed(1)}°`);
+                set('clouds',  `BG: ${s.bgCloudCount || 0} FG: ${s.fgCloudCount || 0}`);
+                const _slaves  = SingletonManager.getSlaveCount(this._singletonId);
+                const _masters = SingletonManager.getCardCount(this._singletonId) - _slaves;
+                set('cards',   `👑 ${_masters} / 👷 ${_slaves}`);
+            }
         }
 
-        const btn = this.querySelector('#btn-toggle-demo');
+        const btn = this._demoCacheBtn || this.shadowRoot.querySelector('#btn-toggle-demo');
         if (btn) {
             const newText = isRunning ? '⏸ Pause' : '▶ Play';
             const newClass = isRunning ? 'btn-pause' : 'btn-play';
@@ -1646,15 +1864,16 @@ class MeteoCard extends HTMLElement {
             btn.classList.add(newClass);
         }
 
-        const select = this.querySelector('#select-demo-condition');
+        const select = this._demoCacheSelect || this.shadowRoot.querySelector('#select-demo-condition');
         if (select) {
             select.value = sharedState.demoForcedCondition || 'auto';
         }
     }
 
     _injectKeyframesForCondition(condition, isNight) {
-        if (this._loadedKeyframes === condition) return;
-        this._loadedKeyframes = condition;
+        const cacheKey = `${condition}:${isNight ? 1 : 0}`;
+        if (this._loadedKeyframes === cacheKey) return;
+        this._loadedKeyframes = cacheKey;
 
         const keyframes = {
             base: `@keyframes to-right { to { transform:translateX(calc(100vw + 500px)); } } @keyframes flash { 0%,90%,94%,100%{opacity:0;} 92%{opacity:0.4;} } @keyframes puff-drift { 0% { margin-left:calc(var(--pdrift) * -1); } 100% { margin-left:var(--pdrift); } }`,
@@ -1679,13 +1898,15 @@ class MeteoCard extends HTMLElement {
         if (!this._keyframesSheet) {
             this._keyframesSheet = document.createElement('style');
             this._keyframesSheet.id = 'meteo-keyframes';
-            this.appendChild(this._keyframesSheet);
+            this.shadowRoot.appendChild(this._keyframesSheet);
         }
 
         this._keyframesSheet.textContent = requiredKeyframes;
     }
 
     _calculateMoonCoordinates(sunAzimuth, sunElevation, hass) {
+        // Default: place the moon opposite the sun on the celestial sphere.
+        // Overridden by real sensor data when moon entities are available.
         let moonAz = (sunAzimuth + 180) % 360;
         let moonEl = -sunElevation;
 
@@ -1735,16 +1956,13 @@ class MeteoCard extends HTMLElement {
                 windSpeed
             } = state;
             const css = {
-                content: ''
+                content: '',
+                shared: new Set()
             };
 
             this._cleanupEvents();
 
             if (!this._ensureContent()) return;
-
-            while (this.content.firstChild) {
-                this.content.removeChild(this.content.firstChild);
-            }
 
             this._injectKeyframesForCondition(condition, isNight);
 
@@ -1752,6 +1970,10 @@ class MeteoCard extends HTMLElement {
             const configuredLayers = this._meteoConfig.get('layers') || [];
 
             this._updateSharedState(state);
+
+            // Build new content in a DocumentFragment so the DOM is never in a
+            // partially-built (unstyled) state — prevents white flashes.
+            const fragment = document.createDocumentFragment();
 
             const svgFilter = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
             svgFilter.setAttribute('style', 'width:0;height:0;position:absolute;');
@@ -1768,7 +1990,7 @@ class MeteoCard extends HTMLElement {
             filterDef.appendChild(feTurbulence);
             filterDef.appendChild(feDisplacementMap);
             svgFilter.appendChild(filterDef);
-            this.content.appendChild(svgFilter);
+            fragment.appendChild(svgFilter);
 
             configuredLayers.forEach((l, idx) => {
                 if (!l || (typeof l === 'string' && l === '')) {
@@ -1782,10 +2004,12 @@ class MeteoCard extends HTMLElement {
                     layerContainer.setAttribute('data-layer-id', `layer-${idx}-${typeof l === 'string' ? l : 'custom'}`);
                     layerContainer.style.zIndex = zIdx;
                     layerContainer.innerHTML = layerHtml;
-                    this.content.appendChild(layerContainer);
+                    fragment.appendChild(layerContainer);
                 }
             });
 
+            // Apply CSS before swapping DOM: stylesheet is global (no Shadow DOM)
+            // so it takes effect immediately, ensuring layers are styled on first paint.
             if (this._dynamicStyleSheet && this._dynamicStyleSheet.parentNode) {
                 this._dynamicStyleSheet.parentNode.removeChild(this._dynamicStyleSheet);
             }
@@ -1793,10 +2017,24 @@ class MeteoCard extends HTMLElement {
             this._dynamicStyleSheet = document.createElement('style');
             this._dynamicStyleSheet.setAttribute('data-meteo-dynamic', 'true');
             this._dynamicStyleSheet.textContent = css.content;
-            this.appendChild(this._dynamicStyleSheet);
+            this.shadowRoot.appendChild(this._dynamicStyleSheet);
+
+            // CSS is now active — swap DOM atomically.
+            // The fragment is fully built and styled before the old content is removed,
+            // so the browser never paints an unstyled or empty card.
+            while (this.content.firstChild) {
+                this.content.removeChild(this.content.firstChild);
+            }
+            this.content.appendChild(fragment);
 
             this._cacheDOM();
             this._updateStaticDOM(state);
+            // Defer shadow init: WebGL shader compilation blocks the main thread.
+            // The canvas renders empty initially and fills in asynchronously.
+            clearTimeout(this._shadowInitTimer);
+            this._shadowInitTimer = setTimeout(() => this._initShadowEngine(), 0);
+            // Reveal card on first load (opacity starts at 0 via _ensureContent).
+            this.style.opacity = '1';
 
             if (this._isDemoLayerEnabled && this._isDemoUIMaster && !this._demoControlsCreated) {
                 this._createPersistentDemoControls();
@@ -1804,7 +2042,50 @@ class MeteoCard extends HTMLElement {
             }
         } catch (e) {
             console.error('[MeteoCard] _renderAll:', e);
+            this.style.opacity = '1';
         }
+    }
+
+    // Returns a cached DOM element, re-querying if it has been detached.
+    _getCachedEl(key, selector) {
+        const el = this._domCache[key];
+        if (el && el.parentNode) return el;
+        const found = this.content?.querySelector(selector) || null;
+        if (found) this._domCache[key] = found;
+        return found;
+    }
+
+    // Positions a celestial-body wrapper (sun or moon) using a compositor-only
+    // transform, avoiding layout thrashing caused by animating left/top on mobile.
+    _positionCelestialBody(el, pos, disableTransition = false) {
+        el.style.display = pos.elevation >= 0 ? 'block' : 'none';
+        const w = this._cardWidth  || el.parentElement?.offsetWidth  || 400;
+        const h = this._cardHeight || el.parentElement?.offsetHeight || 300;
+        const x = (pos.left / 100) * w - 450;
+        const y = (pos.top  / 100) * h - 450;
+        el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+        if (disableTransition) el.style.transition = 'none';
+    }
+
+    // Computes the radial-gradient CSS value for the sky layer given the current state.
+    _computeSkyBackground(sunPos, moonPos, isNight, rising, cond) {
+        let fPos = isNight ? moonPos : sunPos;
+        const sunConf = this._meteoConfig.get('sun');
+        const srLimits = [...sunConf.sunrise_limits].sort((a, b) => a - b);
+        const ssLimits = [...sunConf.sunset_limits].sort((a, b) => a - b);
+        let colors;
+        if (rising && sunPos.elevation >= srLimits[0] && sunPos.elevation <= srLimits[1]) {
+            fPos = sunPos;
+            colors = this._meteoConfig.get('colors.sunrise');
+        } else if (!rising && sunPos.elevation >= ssLimits[0] && sunPos.elevation <= ssLimits[1]) {
+            fPos = sunPos;
+            colors = this._meteoConfig.get('colors.sunset');
+        } else if (isNight) {
+            colors = this._meteoConfig.get(`colors.night.${cond.night_sky}`);
+        } else {
+            colors = this._meteoConfig.get(`colors.day.${cond.day_sky}`);
+        }
+        return colors ? `radial-gradient(circle at ${fPos.left}% ${fPos.top}%, ${colors})` : '';
     }
 
     _cacheDOM() {
@@ -1813,14 +2094,19 @@ class MeteoCard extends HTMLElement {
         const sunContainer = this.content?.querySelector('.sun-container');
         const moonContainer = this.content?.querySelector('.moon-container');
         const lensFlare = this.content?.querySelector('.lens-flare');
+        const shadowCanvas = this.content?.querySelector('.shadow-canvas');
 
         this._domCache = {
             skyBg: skyBg || null,
             sunWrapper: sunWrapper || null,
             sunContainer: sunContainer || null,
             moonContainer: moonContainer || null,
-            lensFlare: lensFlare || null
+            lensFlare: lensFlare || null,
+            shadowCanvas: shadowCanvas || null
         };
+        // Cache card dimensions for transform-based celestial body positioning.
+        this._cardWidth  = this.content?.offsetWidth  || 0;
+        this._cardHeight = this.content?.offsetHeight || 0;
     }
 
     _updateStaticDOM(state) {
@@ -1843,24 +2129,10 @@ class MeteoCard extends HTMLElement {
                 return;
             }
 
-            let sunWrapper = this._domCache.sunWrapper;
-            if (!sunWrapper) {
-                sunWrapper = this.content.querySelector('.sun-wrapper');
-                this._domCache.sunWrapper = sunWrapper;
-            }
+            const sunWrapper = this._getCachedEl('sunWrapper', '.sun-wrapper');
+            if (sunWrapper) this._positionCelestialBody(sunWrapper, sunPos, this._isDemoLayerEnabled);
 
-            if (sunWrapper) {
-                sunWrapper.style.display = sunPos.elevation >= 0 ? 'block' : 'none';
-                sunWrapper.style.left = `${sunPos.left}%`;
-                sunWrapper.style.top = `${sunPos.top}%`;
-                if (this._isDemoLayerEnabled) sunWrapper.style.transition = 'none';
-            }
-
-            let sun = this._domCache.sunContainer;
-            if (!sun) {
-                sun = this.content.querySelector('.sun-container');
-                this._domCache.sunContainer = sun;
-            }
+            const sun = this._getCachedEl('sunContainer', '.sun-container');
 
             if (sun) {
                 if (sunPos.elevation >= 0) {
@@ -1870,32 +2142,18 @@ class MeteoCard extends HTMLElement {
                 }
             }
 
-            let lensFlare = this._domCache.lensFlare;
-            if (!lensFlare) {
-                lensFlare = this.content.querySelector('.lens-flare');
-                this._domCache.lensFlare = lensFlare;
-            }
-
+            const lensFlare = this._getCachedEl('lensFlare', '.lens-flare');
             if (lensFlare) {
                 if (sunPos.elevation >= 0 && this._meteoConfig.get('sun.lens_flare.enabled')) {
-                    const minuteOfDay = Math.floor(hour * 60);
-                    lensFlare.innerHTML = this._lensFlare(sunPos, minuteOfDay);
+                    lensFlare.innerHTML = this._lensFlare(sunPos, this._lensFlareRotation(sunPos, false));
                 } else {
                     lensFlare.innerHTML = '';
                 }
             }
 
-            let moon = this._domCache.moonContainer;
-            if (!moon) {
-                moon = this.content.querySelector('.moon-container');
-                this._domCache.moonContainer = moon;
-            }
-
+            const moon = this._getCachedEl('moonContainer', '.moon-container');
             if (moon) {
-                moon.style.display = moonPos.elevation >= 0 ? 'block' : 'none';
-                moon.style.left = `${moonPos.left}%`;
-                moon.style.top = `${moonPos.top}%`;
-                if (this._isDemoLayerEnabled) moon.style.transition = 'none';
+                this._positionCelestialBody(moon, moonPos, this._isDemoLayerEnabled);
                 if (moonPos.elevation >= 0) {
                     moon.innerHTML = this._moonSVG(moonPhase, !isNight, moonPhaseDegrees);
                 } else {
@@ -1903,37 +2161,13 @@ class MeteoCard extends HTMLElement {
                 }
             }
 
-            let sky = this._domCache.skyBg;
-            if (!sky) {
-                sky = this.content.querySelector('.sky-bg');
-                this._domCache.skyBg = sky;
-            }
-
+            const sky = this._getCachedEl('skyBg', '.sky-bg');
             if (sky) {
-                let fPos = isNight ? moonPos : sunPos;
                 const conf = this._meteoConfig.get(`conditions.${condition}`);
-                const sunConf = this._meteoConfig.get('sun');
-                const srLimits = [...sunConf.sunrise_limits].sort((a, b) => a - b);
-                const ssLimits = [...sunConf.sunset_limits].sort((a, b) => a - b);
-
-                let colors;
-                if (rising && sunPos.elevation >= srLimits[0] && sunPos.elevation <= srLimits[1]) {
-                    fPos = sunPos;
-                    colors = this._meteoConfig.get('colors.sunrise');
-                } else if (!rising && sunPos.elevation >= ssLimits[0] && sunPos.elevation <= ssLimits[1]) {
-                    fPos = sunPos;
-                    colors = this._meteoConfig.get('colors.sunset');
-                } else {
-                    if (isNight) {
-                        colors = this._meteoConfig.get(`colors.night.${conf.night_sky}`);
-                    } else {
-                        colors = this._meteoConfig.get(`colors.day.${conf.day_sky}`);
-                    }
-                }
-
-                sky.style.background = `radial-gradient(circle at ${fPos.left}% ${fPos.top}%, ${colors})`;
+                sky.style.background = this._computeSkyBackground(sunPos, moonPos, isNight, rising, conf);
             }
 
+            this._updateShadow();
             this._updateDemoUI();
         } catch (e) {
             console.error('[MeteoCard] _updateStaticDOM:', e);
@@ -1953,23 +2187,35 @@ class MeteoCard extends HTMLElement {
         this._demoListeners = [];
     }
 
-    _cleanupDemoEvents() {
-        this._cleanupEvents();
-    }
-
     _renderLayer(layer, condition, isNight, sunPos, moonPos, moonPhase, rising, css, windSpeed, cond) {
         try {
             if (layer === 'sky') {
                 const nightContent = isNight ? `<div style="position:absolute; inset:0;">${this._stars(100, css)}${this._shootings(2, css)}</div>` : '';
-                return `<div class="sky-bg" style="position:absolute; inset:0; transition: background 3s ease-in-out;"></div>${nightContent}`;
+                // Pre-compute the sky background to avoid a CSS transition flash.
+                // Without this, the stylesheet swap in _renderAll triggers a style
+                // recalculation that "commits" the sky-bg background as transparent,
+                // causing the 3s transition to animate from white → gradient.
+                const initialBg = this._computeSkyBackground(sunPos, moonPos, isNight, rising, cond);
+                return `<div class="sky-bg" style="position:absolute; inset:0; background:${initialBg}; transition: background 3s ease-in-out;"></div>${nightContent}`;
             }
 
             if (layer === 'sun') {
-                return `<div class="sun-wrapper" style="position:absolute; transform:translate(-50%, -50%); pointer-events:none; display:none; width:900px; height:900px;"><div class="sun-container" style="position:absolute; inset:0; width:100%; height:100%;"></div><div class="lens-flare" style="position:absolute; inset:0; width:100%; height:100%;"></div></div>`;
+                return `<div class="sun-wrapper" style="position:absolute; pointer-events:none; display:none; width:900px; height:900px;"><div class="sun-container" style="position:absolute; inset:0; width:100%; height:100%;"></div><div class="lens-flare" style="position:absolute; inset:0; width:100%; height:100%;"></div></div>`;
             }
 
             if (layer === 'moon') {
-                return `<div class="moon-container" style="position:absolute; transform:translate(-50%, -50%); pointer-events:none; display:none; width:900px; height:900px;"></div>`;
+                return `<div class="moon-container" style="position:absolute; pointer-events:none; display:none; width:900px; height:900px;"></div>`;
+            }
+
+            if (layer === 'shadow') {
+                const shadowCfg = this._meteoConfig.get('shadow') || {};
+                if (!shadowCfg.depthmap) {
+                    console.warn('[MeteoCard] shadow layer: "depthmap" is required in shadow config');
+                    return '';
+                }
+                const shadowBlur = shadowCfg.blur ?? 0;
+                const blurStyle = shadowBlur > 0 ? `filter:blur(${shadowBlur}px);` : '';
+                return `<canvas class="shadow-canvas" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;will-change:transform;transform:translateZ(0);${blurStyle}"></canvas>`;
             }
 
             const cloudRatio = cond.background_ratio || 0.5;
@@ -2018,8 +2264,390 @@ class MeteoCard extends HTMLElement {
         }
     }
 
-    _createStatRow(label, value) {
-        return `<div class="stat-row"><span class="stat-label">${label}</span><span class="stat-value">${value}</span></div>`;
+    _resolveTemplate(value, callback) {
+        const isTemplate = value && (value.includes('{{') || value.includes('{%'));
+        if (isTemplate && this._hass) {
+            this._hass.callApi('POST', 'template', { template: value })
+                .then(result => callback(result.trim()))
+                .catch(err => {
+                    console.error('[MeteoCard] shadow template error:', err);
+                    callback(null);
+                });
+        } else if (isTemplate) {
+            // hass not ready yet — skip, will retry when hass is set
+            callback(null);
+        } else {
+            callback(value || null);
+        }
+    }
+
+    _initShadowEngine() {
+        const canvas = this._domCache.shadowCanvas;
+        if (!canvas) return;
+
+        const shadowCfg = this._meteoConfig.get('shadow') || {};
+        const depthmap = shadowCfg.depthmap;
+        if (!depthmap) return;
+
+        this._cleanupShadow();
+
+        const gl = canvas.getContext('webgl');
+        if (!gl) {
+            console.warn('[MeteoCard] shadow layer: WebGL not available');
+            return;
+        }
+
+        const vs = `
+            attribute vec2 p;
+            attribute vec2 t;
+            varying vec2 v;
+            void main(){
+                gl_Position = vec4(p, 0.0, 1.0);
+                v = t;
+            }
+        `;
+
+        // Overlay shader (no base image) — unit 0 = depthmap
+        const fsOverlayDemo = `
+            precision highp float;
+            varying vec2 v;
+            uniform sampler2D uDepth;
+            uniform vec2 uLight;
+            uniform vec3 uLightDir;
+            uniform float uLightIntensity;
+            uniform float uAmbient;
+            uniform vec2 uTexel;
+            uniform float uBias;
+            uniform float uStepSize;
+            uniform int uShadowEnabled;
+            uniform float uDepthExp;
+            uniform float uDepthGain;
+            uniform float uNormalStrength;
+            uniform float uIntensity;
+            float getDepth(vec2 uv){
+                vec3 d = texture2D(uDepth, uv).rgb;
+                float h = dot(d, vec3(0.3, 0.59, 0.11));
+                h = pow(max(h, 1e-6), uDepthExp) * uDepthGain;
+                return h;
+            }
+            vec3 normalFromDepth(vec2 uv){
+                float hL = getDepth(uv - vec2(uTexel.x, 0.0));
+                float hR = getDepth(uv + vec2(uTexel.x, 0.0));
+                float hD = getDepth(uv - vec2(0.0, uTexel.y));
+                float hU = getDepth(uv + vec2(0.0, uTexel.y));
+                float dx = (hR - hL) * 0.5;
+                float dy = (hU - hD) * 0.5;
+                return normalize(vec3(-dx, -dy, 1.0));
+            }
+            void main(){
+                vec4 depthSample = texture2D(uDepth, v);
+                float mask = depthSample.a;
+                if(mask < 0.01) discard;
+                float hBase = dot(depthSample.rgb, vec3(0.3, 0.59, 0.11));
+                hBase = pow(max(hBase, 1e-6), uDepthExp) * uDepthGain;
+                float acc = 0.0;
+                const float samples = 8.0;
+                if(uShadowEnabled == 1){
+                    float seed = fract(sin(dot(v, vec2(12.9898, 78.233))) * 43758.5453);
+                    for(float i = 0.0; i < 8.0; i++){
+                        float ang = (i + seed) * 0.785;
+                        float sh = 1.0;
+                        for(float j = 1.0; j < 16.0; j++){
+                            float dist = j * uStepSize;
+                            float soft = dist * 0.22;
+                            vec2 jitter = vec2(cos(ang), sin(ang)) * soft;
+                            vec2 p = v + (uLight + jitter) * dist;
+                            if(p.x > 0.0 && p.x < 1.0 && p.y > 0.0 && p.y < 1.0){
+                                if(getDepth(p) > (hBase + dist * 0.65 + uBias)){
+                                    sh = 0.5;
+                                    break;
+                                }
+                            }
+                        }
+                        acc += sh;
+                    }
+                } else { acc = samples; }
+                float shade = acc / samples;
+                vec3 N = normalFromDepth(v);
+                float lambert = max(dot(N, normalize(uLightDir)), 0.0);
+                float relit = 0.15 + 0.85 * lambert;
+                float lightFactor = mix(1.0, relit, uNormalStrength);
+                float brightness = shade * lightFactor;
+                float shadowOpacity = clamp((1.0 - brightness) * uLightIntensity * uIntensity, 0.0, 1.0 - uAmbient) * mask;
+                gl_FragColor = vec4(0.0, 0.0, 0.0, shadowOpacity);
+            }
+        `;
+        const fsOverlayNormal = fsOverlayDemo
+            .replace('const float samples = 8.0;', 'const float samples = 32.0;')
+            .replace('i < 8.0;', 'i < 32.0;')
+            .replace('j < 16.0;', 'j < 30.0;')
+            .replace('* 0.785;', '* 0.196;');
+
+        try {
+            const makeShader = (type, src) => {
+                const sh = gl.createShader(type);
+                gl.shaderSource(sh, src);
+                gl.compileShader(sh);
+                if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+                    throw new Error(gl.getShaderInfoLog(sh));
+                }
+                return sh;
+            };
+
+            const vsShader = makeShader(gl.VERTEX_SHADER, vs);
+            const makeProgram = (fsSrc) => {
+                const p = gl.createProgram();
+                gl.attachShader(p, vsShader);
+                gl.attachShader(p, makeShader(gl.FRAGMENT_SHADER, fsSrc));
+                gl.bindAttribLocation(p, 0, 'p');
+                gl.bindAttribLocation(p, 1, 't');
+                gl.linkProgram(p);
+                if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+                return p;
+            };
+
+            const progDemo   = makeProgram(fsOverlayDemo);
+            const progNormal = makeProgram(fsOverlayNormal);
+
+            const buf = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+                -1,  1, 0, 0,
+                 1,  1, 1, 0,
+                -1, -1, 0, 1,
+                 1, -1, 1, 1
+            ]), gl.STATIC_DRAW);
+            gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 16, 0);
+            gl.enableVertexAttribArray(0);
+            gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 16, 8);
+            gl.enableVertexAttribArray(1);
+
+            // unit 0 = depthmap (NEAREST — exact depth values)
+            const texDepth = gl.createTexture();
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, texDepth);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+            const getUniforms = (p) => {
+                gl.useProgram(p);
+                const u = {
+                    uLight:          gl.getUniformLocation(p, 'uLight'),
+                    uLightDir:       gl.getUniformLocation(p, 'uLightDir'),
+                    uTexel:          gl.getUniformLocation(p, 'uTexel'),
+                    uBias:           gl.getUniformLocation(p, 'uBias'),
+                    uStepSize:       gl.getUniformLocation(p, 'uStepSize'),
+                    uShadowEnabled:  gl.getUniformLocation(p, 'uShadowEnabled'),
+                    uDepthExp:       gl.getUniformLocation(p, 'uDepthExp'),
+                    uDepthGain:      gl.getUniformLocation(p, 'uDepthGain'),
+                    uNormalStrength: gl.getUniformLocation(p, 'uNormalStrength'),
+                    uLightIntensity: gl.getUniformLocation(p, 'uLightIntensity'),
+                    uAmbient:        gl.getUniformLocation(p, 'uAmbient'),
+                    uIntensity:      gl.getUniformLocation(p, 'uIntensity'),
+                    uDepth:          gl.getUniformLocation(p, 'uDepth')
+                };
+                gl.uniform1i(u.uDepth, 0);
+                return u;
+            };
+            const uniformsDemo   = getUniforms(progDemo);
+            const uniformsNormal = getUniforms(progNormal);
+
+            gl.enable(gl.BLEND);
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+            this._shadowGl = gl;
+            this._shadowProgs = { demo: progDemo, normal: progNormal };
+            this._shadowUniformSets = { demo: uniformsDemo, normal: uniformsNormal };
+            this._shadowUniforms = uniformsDemo;
+            this._shadowReady = false;
+
+            const loadImage = (url, onload, onerror) => {
+                const i = new Image();
+                i.onload = () => onload(i);
+                i.onerror = () => onerror(url);
+                i.src = url;
+            };
+
+            const onReady = (depthImg) => {
+                try {
+                    this._shadowTexW = depthImg.width;
+                    this._shadowTexH = depthImg.height;
+                    canvas.width  = depthImg.width;
+                    canvas.height = depthImg.height;
+                    gl.activeTexture(gl.TEXTURE0);
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, depthImg);
+                    const shared = SingletonManager.getSingleton(this._singletonId);
+                    const isDemo = shared && shared.demoState === 'running';
+                    this._shadowIsDemo = null;
+                    this._switchShadowQuality(isDemo);
+                    this._shadowReady = true;
+                    this._updateShadow();
+                } catch (e) {
+                    console.error('[MeteoCard] shadow onReady:', e);
+                }
+            };
+
+            this._resolveTemplate(depthmap, (depUrl) => {
+                try {
+                    if (!depUrl) return;
+                    loadImage(depUrl, onReady,
+                        (u) => console.error('[MeteoCard] shadow depthmap failed:', u));
+                } catch (e) {
+                    console.error('[MeteoCard] shadow resolve:', e);
+                }
+            });
+        } catch (e) {
+            console.error('[MeteoCard] _initShadowEngine:', e);
+        }
+    }
+
+    _updateShadow() {
+        if (!this._shadowReady || !this._shadowGl) return;
+        try {
+            const gl = this._shadowGl;
+            const shared = SingletonManager.getSingleton(this._singletonId);
+            if (!shared) return;
+
+            const lightPos = shared.isNight ? shared.moonPos : shared.sunPos;
+
+            // Light inactive: clear once and stop — keep old render otherwise
+            const active = lightPos && lightPos.elevation > 0;
+            let lightIntensity = 1.0;
+            if (active && shared.isNight) {
+                const phaseDeg = shared.moonPhaseDegrees ?? 0;
+                lightIntensity = (1 + Math.cos(phaseDeg * Math.PI / 180)) / 2;
+            }
+            const shouldRender = active && lightIntensity >= 0.01;
+
+            if (!shouldRender) {
+                if (this._shadowWasActive) {
+                    gl.clearColor(0, 0, 0, 0);
+                    gl.clear(gl.COLOR_BUFFER_BIT);
+                    this._shadowWasActive = false;
+                    this._lastShadowAzimuth = null;
+                    this._lastShadowElevation = null;
+                }
+                return;
+            }
+
+            // Switch shader quality if demo mode changed
+            const isDemo = shared.demoState === 'running';
+            if (isDemo !== this._shadowIsDemo) {
+                this._switchShadowQuality(isDemo);
+                this._lastShadowAzimuth = null; // force redraw after switch
+                this._lastShadowElevation = null;
+            }
+
+            // Skip render if position hasn't changed enough (keep last frame)
+            const azDiff = Math.abs((lightPos.azimuth ?? 0) - (this._lastShadowAzimuth ?? -999));
+            const elDiff = Math.abs((lightPos.elevation ?? 0) - (this._lastShadowElevation ?? -999));
+            const now = Date.now();
+            const elapsed = now - (this._lastShadowRender ?? 0);
+            if (this._shadowWasActive && azDiff < 0.5 && elDiff < 0.5 && elapsed < 250) return;
+
+            this._lastShadowAzimuth = lightPos.azimuth;
+            this._lastShadowElevation = lightPos.elevation;
+            this._lastShadowRender = now;
+            this._shadowWasActive = true;
+
+            const u = this._shadowUniforms;
+            const shadowCfg = this._meteoConfig.get('shadow') || {};
+            const bias      = shadowCfg.bias      ?? 0.003;
+            const step      = shadowCfg.step      ?? 0.002;
+            const ambient   = shadowCfg.ambient   ?? 0.2;
+            const intensity = shadowCfg.intensity ?? 0.7;
+
+            const altRad = lightPos.elevation * Math.PI / 180;
+            const len = (90 - lightPos.elevation) / 60;
+
+            // Derive 2D shadow direction from screen position so it matches the
+            // sun/moon layer (which already includes orbit/house_angle/tilt transforms).
+            const lightU = lightPos.left / 100;
+            const lightV = lightPos.top / 100;
+            const dx = lightU - 0.5;
+            const dy = lightV - 0.5;
+            const mag = Math.sqrt(dx * dx + dy * dy) || 0.001;
+            gl.uniform2f(u.uLight, (dx / mag) * len, (dy / mag) * len);
+
+            // 3D light direction for normal-map shading (raw azimuth is fine here).
+            const aziRad = (lightPos.azimuth - 90) * Math.PI / 180;
+            gl.uniform3f(u.uLightDir,
+                Math.cos(aziRad) * Math.cos(altRad),
+                Math.sin(aziRad) * Math.cos(altRad),
+                Math.sin(altRad)
+            );
+            gl.uniform1f(u.uBias, bias);
+            gl.uniform1f(u.uStepSize, step);
+            gl.uniform1i(u.uShadowEnabled, 1);
+            gl.uniform1f(u.uDepthExp, 1.0);
+            gl.uniform1f(u.uDepthGain, 1.15);
+            gl.uniform1f(u.uNormalStrength, 0.45);
+            gl.uniform1f(u.uLightIntensity, lightIntensity);
+            gl.uniform1f(u.uAmbient, ambient);
+            gl.uniform1f(u.uIntensity, intensity);
+
+            gl.clearColor(0, 0, 0, 0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        } catch (e) {
+            console.error('[MeteoCard] _updateShadow:', e);
+        }
+    }
+
+    _switchShadowQuality(isDemo) {
+        if (!this._shadowGl || !this._shadowProgs) return;
+        const gl = this._shadowGl;
+        const key = isDemo ? 'demo' : 'normal';
+        gl.useProgram(this._shadowProgs[key]);
+        this._shadowUniforms = this._shadowUniformSets[key];
+        const canvas = this._domCache.shadowCanvas;
+        if (canvas && this._shadowTexW) {
+            const iw = this._shadowTexW;
+            const ih = this._shadowTexH;
+            let factor = isDemo ? 0.5 : 1.0;
+            if (!isDemo) {
+                const blur = (this._meteoConfig?.get('shadow') || {}).blur ?? 0;
+                if (blur > 0) {
+                    // Slightly reduce render resolution to complement CSS blur;
+                    // CSS upscaling adds natural smoothing on top of the filter.
+                    // blur=2→~0.9, blur=5→~0.75, blur=10→~0.5 (min 0.5)
+                    factor = Math.max(0.5, 1.0 - blur * 0.05);
+                }
+            }
+            canvas.width  = Math.round(iw * factor);
+            canvas.height = Math.round(ih * factor);
+            gl.viewport(0, 0, canvas.width, canvas.height);
+            gl.uniform2f(this._shadowUniforms.uTexel, 1 / iw, 1 / ih);
+        }
+        this._shadowIsDemo = isDemo;
+    }
+
+    _cleanupShadow() {
+        if (this._shadowGl) {
+            const ext = this._shadowGl.getExtension('WEBGL_lose_context');
+            if (ext) ext.loseContext();
+            this._shadowGl = null;
+        }
+        this._shadowUniforms = null;
+        this._shadowProgs = null;
+        this._shadowUniformSets = null;
+        this._shadowReady = false;
+        this._shadowWasActive = false;
+        this._lastShadowAzimuth = null;
+        this._lastShadowElevation = null;
+        this._lastShadowRender = null;
+        this._shadowIsDemo = null;
+        this._shadowTexW = null;
+        this._shadowTexH = null;
+        clearTimeout(this._shadowInitTimer);
+        this._shadowInitTimer = null;
+    }
+
+    _createStatRow(label, value, statKey = '') {
+        const attr = statKey ? ` data-stat="${statKey}"` : '';
+        return `<div class="stat-row"><span class="stat-label">${label}</span><span class="stat-value"${attr}>${value}</span></div>`;
     }
 
     _createButton(id, className, text) {
@@ -2030,29 +2658,27 @@ class MeteoCard extends HTMLElement {
         const state = SingletonManager.getSingleton(this._singletonId);
         const sharedState = state.actualState || {};
 
-        const simulatedHour = sharedState.simulatedHour || 0;
-        const h = Math.floor(simulatedHour);
-        const m = Math.floor((simulatedHour % 1) * 60);
-        const timeStr = `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:00`;
+        const timeStr = this._formatTime(sharedState.simulatedHour || 0);
 
         const sunConf = this._meteoConfig.get('sun');
         const srLimits = Array.isArray(sunConf.sunrise_limits) ? sunConf.sunrise_limits : [0, 5];
         const ssLimits = Array.isArray(sunConf.sunset_limits) ? sunConf.sunset_limits : [0, 5];
         const sunLimitsStr = `Rise: ${srLimits[0]}°/${srLimits[1]}° | Set: ${ssLimits[0]}°/${ssLimits[1]}°`;
 
-        const slaveCount = (state.registeredCards ? state.registeredCards.size : 1) - 1;
+        const slaveCount  = SingletonManager.getSlaveCount(this._singletonId);
+        const masterCount = SingletonManager.getCardCount(this._singletonId) - slaveCount;
 
         return `
-    ${this._createStatRow('State:', state.demoState.toUpperCase())}
-    ${this._createStatRow('Time:', timeStr)}
-    ${this._createStatRow('Weather:', (sharedState.condition || '').toUpperCase())}
-    ${this._createStatRow('Wind:', `${(sharedState.windSpeed || 0).toFixed(1)} km/h`)}
-    ${this._createStatRow('Sun:', `${(sharedState.sunPos?.elevation || 0).toFixed(1)}° | ${(sharedState.sunPos?.azimuth || 0).toFixed(1)}°`)}
-    ${this._createStatRow('Moon:', `${(sharedState.moonPos?.elevation || 0).toFixed(1)}° | ${(sharedState.moonPos?.azimuth || 0).toFixed(1)}°`)}
-    ${this._createStatRow('Phase:', `${this._safe(sharedState.moonPhase)} | ${(sharedState.moonPhaseDegrees || 0).toFixed(1)}°`)}
-    ${this._createStatRow('Clouds:', `BG: ${state.bgCloudCount || 0} FG: ${state.fgCloudCount || 0}`)}
-    ${this._createStatRow('Limits:', sunLimitsStr)}
-    ${this._createStatRow('Cards:', `👑 1 / 👷 ${Math.max(0, slaveCount)}`)}
+    ${this._createStatRow('State:', state.demoState.toUpperCase(), 'state')}
+    ${this._createStatRow('Time:', timeStr, 'time')}
+    ${this._createStatRow('Weather:', (sharedState.condition || '').toUpperCase(), 'weather')}
+    ${this._createStatRow('Wind:', `${(sharedState.windSpeed || 0).toFixed(1)} km/h`, 'wind')}
+    ${this._createStatRow('Sun:', `${(sharedState.sunPos?.elevation || 0).toFixed(1)}° | ${(sharedState.sunPos?.azimuth || 0).toFixed(1)}°`, 'sun')}
+    ${this._createStatRow('Moon:', `${(sharedState.moonPos?.elevation || 0).toFixed(1)}° | ${(sharedState.moonPos?.azimuth || 0).toFixed(1)}°`, 'moon')}
+    ${this._createStatRow('Phase:', `${this._safe(sharedState.moonPhase)} | ${(sharedState.moonPhaseDegrees || 0).toFixed(1)}°`, 'phase')}
+    ${this._createStatRow('Clouds:', `BG: ${state.bgCloudCount || 0} FG: ${state.fgCloudCount || 0}`, 'clouds')}
+    ${this._createStatRow('Limits:', sunLimitsStr, 'limits')}
+    ${this._createStatRow('Cards:', `👑 ${masterCount} / 👷 ${slaveCount}`, 'cards')}
         `.trim();
     }
 
@@ -2085,14 +2711,20 @@ class MeteoCard extends HTMLElement {
     </div>
         `.trim();
 
-        this.insertAdjacentHTML('beforeend', controlsHtml);
+        const tpl = document.createElement('template');
+        tpl.innerHTML = controlsHtml;
+        this.shadowRoot.appendChild(tpl.content);
+        // Cache hot-path references immediately after insertion.
+        this._demoCacheStats  = this.shadowRoot.querySelector('.demo-stats-inner');
+        this._demoCacheBtn    = this.shadowRoot.querySelector('#btn-toggle-demo');
+        this._demoCacheSelect = this.shadowRoot.querySelector('#select-demo-condition');
         this._attachDemoListeners();
     }
 
     _attachDemoListeners() {
-        const btn = this.querySelector('#btn-toggle-demo');
-        const stopBtn = this.querySelector('#btn-stop-demo');
-        const select = this.querySelector('#select-demo-condition');
+        const btn     = this.shadowRoot.querySelector('#btn-toggle-demo');
+        const stopBtn = this.shadowRoot.querySelector('#btn-stop-demo');
+        const select  = this.shadowRoot.querySelector('#select-demo-condition');
 
         if (this._demoListenersBound) {
             if (this._boundPlayPauseFn) btn?.removeEventListener('click', this._boundPlayPauseFn);
@@ -2168,12 +2800,13 @@ class MeteoCard extends HTMLElement {
     }
 
     _sunSVG() {
+        if (this._sunSVGCache) return this._sunSVGCache;
         try {
             const s = this._meteoConfig.get('sun');
             const col = s.colors;
             const center = 150;
 
-            return `
+            this._sunSVGCache = `
             <svg viewBox="0 0 300 300" style="width:100%; height:100%; overflow:visible; display:block;">
                 <defs>
                     <radialGradient id="sunAura" cx="50%" cy="50%" r="50%">
@@ -2189,44 +2822,36 @@ class MeteoCard extends HTMLElement {
                 <circle cx="${center}" cy="${center}" r="${s.halo_radius}" fill="url(#sunHalo)"/>
                 <circle cx="${center}" cy="${center}" r="${s.disc_radius}" fill="${col.disc}" style="filter:blur(1px);"/>
             </svg>`;
+            return this._sunSVGCache;
         } catch (e) {
             console.error('[MeteoCard] _sunSVG:', e);
             return '';
         }
     }
 
-    _lensFlare(sunPos, minuteOfDay = 0) {
+    _lensFlareRotation(sunPos, isDemo) {
+        return isDemo
+            ? (Date.now() / 50) % 360
+            : Math.atan2(sunPos.top - 50, sunPos.left - 50) * 180 / Math.PI + 180;
+    }
+
+    _lensFlare(sunPos, rotation) {
         try {
-            const def = this._meteoConfig.get('sun.lens_flare');
             const lf = this._meteoConfig.get('sun.lens_flare');
 
             if (!lf.enabled) return '';
 
-            const sharedState = SingletonManager.getSingleton(this._singletonId);
-            const demoState = SingletonManager.getDemoState(this._singletonId);
-
-            let rotation;
-            if (demoState === 'running') {
-                const now = Date.now();
-                rotation = (now / 50) % 360;
-            } else {
-                const now = new Date();
-                const totalSeconds = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
-                const rotationPerSecond = 360 / 86400;
-                rotation = (totalSeconds * rotationPerSecond) % 360;
-            }
-
             const elevationOpacity = Math.max(0, Math.min(1, (sunPos.elevation + 5) / 20));
             const center = 450;
             const uniqueId = this._cardId;
-            const glowStd = lf.glow_stdDeviation ?? def.glow_stdDeviation;
-            const haloRadius = lf.halo_radius ?? def.halo_radius;
-            const haloStrokeWidth = lf.halo_stroke_width ?? def.halo_stroke_width;
-            const haloOpacity = (lf.halo_opacity ?? def.halo_opacity) * elevationOpacity;
-            const innerHaloRadius = lf.inner_halo_radius ?? def.inner_halo_radius;
-            const innerHaloStrokeWidth = lf.inner_halo_stroke_width ?? def.inner_halo_stroke_width;
-            const innerHaloOpacity = (lf.inner_halo_opacity ?? def.inner_halo_opacity) * elevationOpacity;
-            const flares = lf.flares ?? def.flares;
+            const glowStd = lf.glow_stdDeviation;
+            const haloRadius = lf.halo_radius;
+            const haloStrokeWidth = lf.halo_stroke_width;
+            const haloOpacity = lf.halo_opacity * elevationOpacity;
+            const innerHaloRadius = lf.inner_halo_radius;
+            const innerHaloStrokeWidth = lf.inner_halo_stroke_width;
+            const innerHaloOpacity = lf.inner_halo_opacity * elevationOpacity;
+            const flares = lf.flares;
 
             let flareCircles = '';
             if (flares && Array.isArray(flares)) {
@@ -2256,7 +2881,6 @@ class MeteoCard extends HTMLElement {
 
     _moonSVG(phase, isDaytime, moonPhaseDegrees = 0) {
         try {
-            const def = this._meteoConfig.get('moon');
             const m = this._meteoConfig.get('moon');
             const col = m.colors;
             const r = m.disc_radius;
@@ -2341,7 +2965,13 @@ class MeteoCard extends HTMLElement {
                 const opacity = type === 'heavy' ? 0.9 : 0.7;
                 const zIdx = Math.floor(tp);
 
-                css.content += `.${id}{position:absolute;top:${tp}%;left:-${cw * 2}px;width:${cw}px;height:${Math.round(bs * 2.2)}px;animation:to-right ${dur}s linear infinite;animation-delay:-${delay}s;filter:url(#cloud-distort) blur(5px);opacity:${opacity};mix-blend-mode:${isNight ? 'normal' : 'screen'};z-index:${zIdx};pointer-events:none} .${id} .puff{position:absolute;border-radius:50%;background:radial-gradient(circle at 35% 30%,rgba(${Math.min(255, bc + 45)},${Math.min(255, bc + 45)},${Math.min(255, bc + 45)},1) 0%,rgba(${bc},${bc},${bc + 10},.8) 50%,rgba(${Math.max(0, bc - 55)},${Math.max(0, bc - 55)},${Math.max(0, bc - 55 + 20)},.4) 100%);filter:blur(10px)}`;
+                const puffCls = `${this._cardId}-puff`;
+                if (!css.shared.has(puffCls)) {
+                    css.shared.add(puffCls);
+                    css.content += `.${puffCls}{position:absolute;border-radius:50%;background:var(--puff-bg);filter:blur(10px)}`;
+                }
+                const puffBg = `radial-gradient(circle at 35% 30%,rgba(${Math.min(255, bc + 45)},${Math.min(255, bc + 45)},${Math.min(255, bc + 45)},1) 0%,rgba(${bc},${bc},${bc + 10},.8) 50%,rgba(${Math.max(0, bc - 55)},${Math.max(0, bc - 55)},${Math.max(0, bc - 55 + 20)},.4) 100%)`;
+                css.content += `.${id}{position:absolute;top:${tp}%;left:-${cw * 2}px;width:${cw}px;height:${Math.round(bs * 2.2)}px;animation:to-right ${dur}s linear infinite;animation-delay:-${delay}s;filter:url(#cloud-distort) blur(5px);opacity:${opacity};mix-blend-mode:${isNight ? 'normal' : 'screen'};z-index:${zIdx};pointer-events:none;--puff-bg:${puffBg}}`;
 
                 let puffs = '';
                 for (let j = 0; j < pc; j++) {
@@ -2349,12 +2979,12 @@ class MeteoCard extends HTMLElement {
                     const ph = Math.round(pw * 0.9);
                     const pl = Math.round((j * (85 / pc) + Math.random() * 10) * 100) / 100;
                     const pt = Math.round((Math.random() * (bs * 0.4) - bs * 0.2) * 100) / 100;
-                    const driftSign = j % 2 === 0 ? 1 : -1; // alterne avec/contre le vent
-                    const driftAmt = driftSign * Math.round(12 + Math.random() * 18); // 12–30px
+                    const driftSign = j % 2 === 0 ? 1 : -1; // alternate with/against wind direction
+                    const driftAmt = driftSign * Math.round(12 + Math.random() * 18); // 12–30px lateral drift
                     const driftDur = (parseFloat(dur) * (0.35 + Math.random() * 0.3)).toFixed(2);
                     const driftDelay = (Math.random() * parseFloat(driftDur)).toFixed(2);
 
-                    puffs += `<div class="puff" style="width:${pw}px;height:${ph}px;left:${pl}%;top:${pt}px;--pdrift:${driftAmt}px;animation:puff-drift ${driftDur}s linear infinite alternate;animation-delay:-${driftDelay}s"></div>`;
+                    puffs += `<div class="${this._cardId}-puff" style="width:${pw}px;height:${ph}px;left:${pl}%;top:${pt}px;--pdrift:${driftAmt}px;animation:puff-drift ${driftDur}s linear infinite alternate;animation-delay:-${driftDelay}s"></div>`;
                 }
                 html += `<div class="${id}">${puffs}</div>`;
             }
@@ -2367,15 +2997,17 @@ class MeteoCard extends HTMLElement {
 
     _stars(n, css) {
         try {
+            const cls = `${this._cardId}-star`;
+            if (!css.shared.has(cls)) {
+                css.shared.add(cls);
+                css.content += `.${cls}{position:absolute;width:1.5px;height:1.5px;background:#FFF;border-radius:50%;top:var(--t);left:var(--l);animation:star var(--d) infinite;z-index:1}`;
+            }
             let html = '';
             for (let i = 0; i < n; i++) {
-                const id = `${this._cardId}-st-${i}`;
-                const duration = (2 + Math.random() * 3).toFixed(2);
-                const top = Math.round(Math.random() * 10000) / 100;
-                const left = Math.round(Math.random() * 10000) / 100;
-
-                css.content += `.${id}{position:absolute;width:1.5px;height:1.5px;background:#FFF;border-radius:50%;top:${top}%;left:${left}%;animation:star ${duration}s infinite;z-index:1}`;
-                html += `<div class="${id}"></div>`;
+                const d = (2 + Math.random() * 3).toFixed(2);
+                const t = Math.round(Math.random() * 10000) / 100;
+                const l = Math.round(Math.random() * 10000) / 100;
+                html += `<div class="${cls}" style="--t:${t}%;--l:${l}%;--d:${d}s"></div>`;
             }
             return html;
         } catch (e) {
@@ -2385,26 +3017,31 @@ class MeteoCard extends HTMLElement {
     }
 
     _shootings(n, css) {
+        const cls = `${this._cardId}-shot`;
+        if (!css.shared.has(cls)) {
+            css.shared.add(cls);
+            css.content += `.${cls}{position:absolute;width:100px;height:1px;background:linear-gradient(to right,transparent,white);transform:rotate(45deg) translateX(-200px);opacity:0;animation:shot 15s infinite;top:var(--t);left:var(--l);animation-delay:var(--d);z-index:2}`;
+        }
         let h = '';
         for (let i = 0; i < n; i++) {
-            const id = `${this._cardId}-sh-${i}`;
-            css.content += `.${id}{position:absolute;width:100px;height:1px;background:linear-gradient(to right,transparent,white);top:${Math.random()*50}%;left:${Math.random()*100}%;transform:rotate(45deg) translateX(-200px);opacity:0;animation:shot 15s infinite;animation-delay:${Math.random()*15}s;z-index:2;}`;
-            h += `<div class="${id}"></div>`;
+            h += `<div class="${cls}" style="--t:${(Math.random()*50).toFixed(1)}%;--l:${(Math.random()*100).toFixed(1)}%;--d:${(Math.random()*15).toFixed(2)}s"></div>`;
         }
         return h;
     }
 
     _rain(n, css) {
         try {
-            let html = '';
             const rainWidth = this._meteoConfig.get('rain_intensity.width');
+            const cls = `${this._cardId}-rain`;
+            if (!css.shared.has(cls)) {
+                css.shared.add(cls);
+                css.content += `.${cls}{position:absolute;width:${rainWidth}px;height:40px;background:linear-gradient(to bottom,transparent,rgba(255,255,255,0.4));top:-50px;animation:rain-fall 0.6s linear infinite;z-index:500;left:var(--l);animation-delay:var(--d)}`;
+            }
+            let html = '';
             for (let i = 0; i < n; i++) {
-                const id = `${this._cardId}-ra-${i}`;
-                const left = Math.round(Math.random() * 10000) / 100;
-                const delay = Math.round(Math.random() * 2000) / 100;
-
-                css.content += `.${id}{position:absolute;width:${rainWidth}px;height:40px;background:linear-gradient(to bottom,transparent,rgba(255,255,255,0.4));left:${left}%;top:-50px;animation:rain-fall 0.6s linear infinite;animation-delay:-${delay}s;z-index:500}`;
-                html += `<div class="${id}"></div>`;
+                const l = Math.round(Math.random() * 10000) / 100;
+                const d = Math.round(Math.random() * 2000) / 100;
+                html += `<div class="${cls}" style="--l:${l}%;--d:-${d}s"></div>`;
             }
             return html;
         } catch (e) {
@@ -2414,12 +3051,18 @@ class MeteoCard extends HTMLElement {
     }
 
     _snow(n, css) {
+        const cls = `${this._cardId}-snow`;
+        if (!css.shared.has(cls)) {
+            css.shared.add(cls);
+            css.content += `.${cls}{position:absolute;width:var(--w);height:var(--w);background:#FFFFFF;border-radius:50%;left:var(--l);top:-10px;opacity:var(--op);filter:blur(1px);animation:snow-fall var(--dur) linear infinite,snow-sway var(--sdur) ease-in-out infinite alternate;animation-delay:var(--dd);z-index:500}`;
+        }
         let h = '';
         for (let i = 0; i < n; i++) {
-            const id = `${this._cardId}-sn-${i}`;
-            const sw = 15 + Math.random() * 30;
-            css.content += `.${id}{position:absolute;width:${2+Math.random()*4}px;height:${2+Math.random()*4}px;background:#FFFFFF;border-radius:50%;left:${Math.random()*100}%;top:-10px;opacity:${0.4+Math.random()*0.6};filter:blur(1px);animation:snow-fall ${7+Math.random()*5}s linear infinite, snow-sway ${2+Math.random()*2}s ease-in-out infinite alternate;animation-delay:-${Math.random()*10}s;--sway:${sw}px;z-index:500;}`;
-            h += `<div class="${id}"></div>`;
+            const w = (2 + Math.random() * 4).toFixed(1);
+            const sw = Math.round(15 + Math.random() * 30);
+            const dur = (7 + Math.random() * 5).toFixed(1);
+            const sdur = (2 + Math.random() * 2).toFixed(1);
+            h += `<div class="${cls}" style="--w:${w}px;--l:${(Math.random()*100).toFixed(1)}%;--op:${(0.4+Math.random()*0.6).toFixed(2)};--dur:${dur}s;--sdur:${sdur}s;--dd:-${(Math.random()*10).toFixed(1)}s;--sway:${sw}px"></div>`;
         }
         return h;
     }
@@ -2451,13 +3094,18 @@ class MeteoCard extends HTMLElement {
         }
     }
 
+    // Returns the CSS z-index for a named layer.
+    // sky(1) < background(2) < shadow(3) < moon(4) < sun(5) < foreground(500) < demo_mode(9999).
+    // The large gap before foreground ensures rain/snow/fog always render above all celestial layers.
+    // demo_mode sits above everything so the control panel is never obscured.
     _zIdx(l) {
         const layerStr = typeof l === 'string' ? l : '';
         return {
             'sky': 1,
-            'sun': 2,
-            'moon': 2,
-            'background': 10,
+            'background': 2,
+            'shadow': 3,
+            'moon': 4,
+            'sun': 5,
             'foreground': 500,
             'demo_mode': 9999
         } [layerStr] || 2;
@@ -2466,9 +3114,14 @@ class MeteoCard extends HTMLElement {
     _formatTime(hour) {
         const h = Math.floor(hour);
         const m = Math.floor((hour % 1) * 60);
-        return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`;
+        return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:00`;
     }
 
+    // Maps a raw Home Assistant weather state string to one of the card's
+    // internal condition keys (defined in MeteoConfig.DEFAULTS.conditions).
+    // Uses substring matching so it handles both standard HA states ('rainy',
+    // 'partlycloudy') and custom integrations that embed the same keywords.
+    // Falls back to 'sunny' for any unrecognised state.
     _weatherMatrix(state) {
         const s = (state || '').toLowerCase();
         if (s.includes('lightning') || s.includes('storm')) return 'lightning-rainy';
@@ -2483,19 +3136,18 @@ class MeteoCard extends HTMLElement {
     }
 
     _injectStyles() {
-        const s = document.createElement('style');
-        s.setAttribute('data-meteo-injected', 'true');
-        s.textContent = `
+        const cssText = `
             meteo-card { isolation: isolate; position: relative; }
             ha-card { width: 100% !important; height: 100% !important; min-height: 320px !important; position: relative !important; overflow: hidden !important; background: transparent !important; border: none !important; display: block !important; isolation: isolate; }
             .layer-container { pointer-events: none; position: absolute; inset: 0; overflow: hidden; }
-            .sun-wrapper, .moon-container { position: absolute; transform: translate(-50%, -50%); pointer-events: none; width: 900px; height: 900px; transition: left 0.5s linear, top 0.5s linear; }
+            .sun-wrapper, .moon-container { position: absolute; left: 0; top: 0; pointer-events: none; width: 900px; height: 900px; will-change: transform; transition: transform 0.5s linear; }
+            .layer-container { contain: paint; }
             .sun-container { position: absolute; inset: 0; width: 100%; height: 100%; }
             .lens-flare { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
             .lightning { position: absolute; inset: 0; background: white; opacity: 0; animation: flash 5s infinite; z-index: 998; mix-blend-mode: overlay; }
-            
+
             .demo-controls { position: absolute; top: 12px; left: 12px; z-index: 10000; background: rgba(0, 0, 0, 0.85); padding: 8px; border-radius: 8px; display: flex; flex-direction: column; gap: 8px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.2); min-width: 140px; pointer-events: auto !important; font-family: system-ui, -apple-system, sans-serif; }
-            
+
             .demo-controls-buttons { display: flex; gap: 6px; justify-content: space-between; }
             .demo-btn { border: none; color: white !important; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; text-transform: uppercase; transition: background 0.2s ease; min-width: 65px; font-weight: bold; pointer-events: auto !important; }
             .demo-btn.btn-pause { background-color: #d1a513 !important; color: black !important; }
@@ -2503,24 +3155,42 @@ class MeteoCard extends HTMLElement {
             .demo-btn.btn-stop { background-color: #FF5252 !important; padding: 4px 8px; min-width: auto; }
             .demo-btn:hover { filter: brightness(1.2); }
             .demo-btn:active { transform: scale(0.95); }
-            
+
             .demo-select { background: rgba(255, 255, 255, 0.15); color: white; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 4px; font-size: 10px; padding: 3px; cursor: pointer; outline: none; width: 100%; pointer-events: auto !important; font-family: inherit; }
             .demo-select option { background: #222; color: white; }
-            
+
             .demo-stats-inner { display: flex; flex-direction: column; gap: 3px; pointer-events: none; }
             .stat-row { display: flex; justify-content: space-between; gap: 8px; font-family: system-ui, -apple-system, sans-serif; font-size: 9px; line-height: 1.2; }
             .stat-label { color: #2196F3; font-weight: bold; flex-shrink: 0; }
             .stat-value { color: rgba(255, 255, 255, 0.9); text-align: right; }
-            
+
             .demo-stats-container { padding: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); }
             .demo-controls-container { display: flex; flex-direction: column; gap: 8px; }
         `;
-        this.appendChild(s);
+
+        // Adopted StyleSheets: a single CSS object shared across all Shadow Roots.
+        if (typeof CSSStyleSheet !== 'undefined' && 'adoptedStyleSheets' in ShadowRoot.prototype) {
+            if (!_meteoSharedSheet) {
+                _meteoSharedSheet = new CSSStyleSheet();
+                _meteoSharedSheet.replaceSync(cssText);
+            }
+            if (!this.shadowRoot.adoptedStyleSheets.includes(_meteoSharedSheet)) {
+                this.shadowRoot.adoptedStyleSheets = [...this.shadowRoot.adoptedStyleSheets, _meteoSharedSheet];
+            }
+        } else {
+            // Fallback for older browsers that don't support Adopted StyleSheets: inject a <style> tag.
+            if (!this.shadowRoot.querySelector('style[data-meteo-injected]')) {
+                const s = document.createElement('style');
+                s.setAttribute('data-meteo-injected', 'true');
+                s.textContent = cssText;
+                this.shadowRoot.appendChild(s);
+            }
+        }
 
         if (!this._keyframesSheet) {
             this._keyframesSheet = document.createElement('style');
             this._keyframesSheet.id = 'meteo-keyframes';
-            this.appendChild(this._keyframesSheet);
+            this.shadowRoot.appendChild(this._keyframesSheet);
         }
 
         if (!this._demoControlsCreated && this._isDemoLayerEnabled && this._isDemoUIMaster) {

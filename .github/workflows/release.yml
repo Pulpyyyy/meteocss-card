@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Extract Version
+        id: get_version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Build release zip
+        run: |
+          cd dist
+          zip ../meteocss-card.zip meteocss-card.js
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "MeteoCSS Card ${{ github.ref_name }}"
+          generate_release_notes: true
+          files: meteocss-card.zip

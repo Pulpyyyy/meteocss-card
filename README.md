@@ -23,6 +23,7 @@ https://github.com/user-attachments/assets/07463969-425f-423e-a758-a8abea28b8b6
 - 🎛️ **Demo Mode** : Time simulator with weather conditions
 - 🎨 **Fully Customizable** : Colors, radii, orbits, angles
 - 🔄 **Multi-Card Sync** : Automatic synchronization of multiple cards on the same screen
+- 🌒 **Dynamic Shadows** : Real-time WebGL shadow rendering driven by sun/moon position using a depth map
 
 ## 📋 Requirements
 
@@ -231,9 +232,10 @@ weather: weather.home
 sun_entity: sun.sun
 layers:
   - sky
+  - background
+  - shadow
   - sun
   - moon
-  - background
   - foreground
   - demo_mode
 ```
@@ -321,6 +323,7 @@ Card 1 (Background layers):
     └─ Static image layer (terrain, buildings)
 
 Card 2 (Foreground layers):
+├─ Shadow (WebGL depth-based shadows, driven by sun/moon position)
 ├─ Sun
 ├─ Moon
 └─ Foreground clouds (e.g., 40% of total for cloudy condition)
@@ -336,7 +339,8 @@ The layering technique provides fine-grained control over the visual hierarchy:
 1. **Container** – The picture-elements (transparent)
 2. **Background weather** – Sky and background effects rendered first
 3. **Custom intermediate images** – Static visual elements positioned in the middle
-4. **Foreground dynamic elements** – Sun, moon, rain, and clouds on top
+4. **Shadow** – WebGL depth-based shadows cast by sun or moon over the scene image
+5. **Foreground dynamic elements** – Sun, moon, rain, and clouds on top
 
 This approach gives you **complete control over the rendering order** and enables you to create **highly customized and visually rich weather scenes** by composing multiple visual layers strategically.
 
@@ -360,6 +364,110 @@ clouds:
     max_margin: 90      # Extend higher
     random_variation: 0.5 # More variation in positions
 ```
+
+### Shadow Layer (WebGL Depth-Based Shadows)
+
+The `shadow` layer renders real-time shadows projected by the sun (day) or moon (night) across your scene image, using a **depth map** (greyscale image) to determine the height of each element. The brighter a pixel is in the depth map, the taller it is considered — and the longer/darker the shadow it casts.
+
+Shadow rendering uses WebGL and automatically disables when the light source is below the horizon. Moon shadows are attenuated based on the lunar phase (full moon = full shadow intensity, new moon = no shadow).
+
+#### Step 1 — Generate a Depth Map with Depth Anything V2
+
+1. Go to [https://huggingface.co/spaces/depth-anything/Depth-Anything-V2](https://huggingface.co/spaces/depth-anything/Depth-Anything-V2)
+2. Upload your scene image (e.g., your house/background photo used in `picture-elements`)
+3. The model returns a greyscale depth map where **bright = near/tall** and **dark = far/flat**
+4. Download the resulting greyscale image
+
+#### Step 2 — Make Transparent the Areas That Should Never Cast Shadows
+
+Some zones (sky, distant background, UI elements) should never produce shadows. Use an image editor (GIMP, Photoshop, Affinity Photo…) to:
+
+1. Open the downloaded greyscale depth map
+2. Add an **alpha channel** (Image → Mode → RGBA or Layer → Transparency → Add Alpha Channel)
+3. Select the areas you want to **exclude from shadows** (sky, flat ground, background elements) and **delete them** (fill with transparency)
+4. Export the result as a **PNG with transparency** (`.png`)
+
+> **Tip**: Erasing the sky zone is essential — without it, the depth model often treats the sky as a tall surface and generates incorrect shadows across the entire top of the card.
+
+#### Step 3 — Host the Depth Map and Reference It
+
+Place the PNG in your Home Assistant `www/` folder or any accessible URL, then reference it in the card config:
+
+```yaml
+shadow:
+  depthmap: /local/my-scene-depthmap.png
+```
+
+You can also use a HA template to dynamically change the depth map:
+
+```yaml
+shadow:
+  depthmap: "{{ '/local/day-depthmap.png' if is_state('sun.sun', 'above_horizon') else '/local/night-depthmap.png' }}"
+```
+
+#### Shadow Layer in Picture-Elements
+
+The `shadow` layer sits **between `background` and `sun`/`moon`** by default (z-index 3), so it overlays the scene image correctly. Typical usage:
+
+```yaml
+type: picture-elements
+image: /local/empty.png
+elements:
+  - type: custom:meteo-card
+    weather: weather.home
+    sun_entity: sun.sun
+    singleton_id: "main_sync"
+    layers:
+      - sky
+      - background
+    style:
+      top: 50%
+      left: 50%
+      width: 100%
+      height: 100%
+
+  - type: image
+    image: /local/my-scene.png
+    style:
+      top: 50%
+      left: 50%
+      width: 100%
+
+  - type: custom:meteo-card
+    weather: weather.home
+    sun_entity: sun.sun
+    singleton_id: "main_sync"
+    shadow:
+      depthmap: /local/my-scene-depthmap.png
+      bias: 0.003       # Shadow offset to reduce acne artifacts
+      step: 0.002       # Ray-march step size (smaller = more precise, heavier)
+      ambient: 0.2      # Minimum light floor (0 = full black, 0.2 = soft)
+      intensity: 0.7    # Global shadow strength multiplier (0–1)
+      blur: 2           # CSS blur applied to canvas (softens shadow edges)
+    layers:
+      - shadow
+      - sun
+      - moon
+      - foreground
+    style:
+      top: 50%
+      left: 50%
+      width: 100%
+      height: 100%
+```
+
+#### Shadow Configuration Reference
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `depthmap` | `null` | **Required.** URL or HA template returning the depth map PNG path |
+| `bias` | `0.003` | Shadow bias to reduce "shadow acne" artifacts on flat surfaces |
+| `step` | `0.002` | Ray-march step size — smaller = more accurate shadows but more GPU load |
+| `ambient` | `0.2` | Ambient light floor — prevents fully black shadows (0 = pitch black, 0.4 = very soft) |
+| `intensity` | `0.7` | Global shadow strength multiplier — increase for stronger shadows, decrease for subtler ones |
+| `blur` | `0` | CSS `blur()` in px applied to the shadow canvas — softens shadow edges |
+
+---
 
 ### Fog Effect Customization
 
@@ -591,11 +699,22 @@ fog:
   blur: 15               # Blur filter strength (px)
   height: 180            # Height of the fog bank (px)
 
+# --- Shadow Configuration ---
+# Requires a greyscale depth map PNG (transparent areas = no shadow)
+shadow:
+  depthmap: /local/my-scene-depthmap.png  # Required: URL or HA template
+  bias: 0.003            # Shadow bias (reduces acne artifacts on flat surfaces)
+  step: 0.002            # Ray-march step size (smaller = more precise, heavier GPU)
+  ambient: 0.2           # Ambient light floor — 0 = full black, 0.2 = soft shadows
+  intensity: 0.7         # Global shadow strength (0 = invisible, 1 = maximum contrast)
+  blur: 0                # CSS blur in px applied to shadow canvas (softens edges)
+
 # --- Display Layers ---
 # Order defines the Z-Index (rendering stack)
 layers:
   - sky
   - background
+  - shadow    # WebGL shadow layer (place after background, before sun/moon)
   - sun
   - moon
   - foreground
@@ -737,6 +856,25 @@ sun_entity: sun.sun
 - Adjust `fog.opacity_min` and `fog.opacity_max` (0-1 range)
 - Increase/decrease `fog.blur` for harder/softer edges
 - Change `fog.height` for thicker/thinner layers
+
+### Shadow Not Displaying
+- Ensure `shadow` is listed in `layers`
+- Verify that `shadow.depthmap` points to a valid and accessible PNG URL
+- Check the browser console for `[MeteoCard] shadow depthmap failed:` errors
+- Shadow only renders when the sun or moon is **above the horizon** (elevation > 0°)
+- WebGL must be available in your browser — check with the browser's developer tools
+- If using a HA template for `depthmap`, make sure the template evaluates to a valid URL
+
+### Shadow Artifacts or Ugly Result
+- Increase `bias` (e.g., `0.005`) to reduce "shadow acne" on flat surfaces
+- Decrease `step` (e.g., `0.001`) for more precise ray marching at the cost of GPU load
+- Add `blur: 2` or more to soften hard shadow edges
+- Make sure the sky and flat areas in your depth map are **transparent** (erased with alpha), not dark grey — dark grey still produces shadows
+
+### Shadow Too Dark or Not Visible Enough
+- **Too dark**: increase `ambient` (e.g., `0.4`) to prevent shadows from going fully black, or decrease `intensity` (e.g., `0.5`)
+- **Not visible enough**: increase `intensity` (e.g., `1.0`) for stronger contrast, or lower `ambient` (e.g., `0.1`)
+- At night, shadow strength is automatically modulated by the lunar phase — full moon casts strong shadows, new moon none
 
 ### Cards Not Synchronizing
 - Ensure both cards have the same `singleton_id`

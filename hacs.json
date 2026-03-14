@@ -2,7 +2,6 @@
   "name": "MeteoCSS Card",
   "filename": "meteocss-card.js",
   "render_readme": true,
-  "content_in_root": true,
-  "documentation": "https://github.com/Pulpyyyy/meteocss-card",
-  "issues": "https://github.com/Pulpyyyy/meteocss-card/issues"
+  "zip_release": true,
+  "homeassistant": "2023.12.0"
 }
