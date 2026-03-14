@@ -2,8 +2,9 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
+      - master
 
 jobs:
   release:
@@ -14,25 +15,45 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Extract Version
-        id: get_version
+      - name: Extract Version from JS
+        id: version
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          VERSION=$(grep -oP 'MeteoCSS Card %c v\K[0-9]+\.[0-9]+\.[0-9]+' dist/meteocss-card.js | head -n 1)
+          TAG="v$VERSION"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Found version: $TAG"
 
-      - name: Build release zip
+      - name: Check if tag already exists
+        id: check
         run: |
-          if [ -f "dist/meteocss-card.js" ]; then
-            cd dist && zip ../meteocss-card.zip meteocss-card.js
+          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "skip=true" >> $GITHUB_OUTPUT
           else
-            zip meteocss-card.zip meteocss-card.js
+            echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Create and push tag
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ steps.version.outputs.tag }}
+          git push origin ${{ steps.version.outputs.tag }}
+
+      - name: Build release zip
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          cd dist
+          zip ../meteocss-card.zip meteocss-card.js
+
       - name: Create GitHub Release
+        if: steps.check.outputs.skip == 'false'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: "MeteoCSS Card ${{ github.ref_name }}"
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "MeteoCSS Card ${{ steps.version.outputs.tag }}"
           generate_release_notes: true
           files: meteocss-card.zip
