@@ -1,10 +1,14 @@
 name: Release
 
 on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
   push:
-    branches:
-      - main
-      - master
+    tags:
+      - "v*"
 
 jobs:
   release:
@@ -16,44 +20,23 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
 
-      - name: Extract Version from JS
-        id: version
+      - name: Resolve tag name
+        id: tag
         run: |
-          VERSION=$(grep -oP 'MeteoCSS Card %c v\K[0-9]+\.[0-9]+\.[0-9]+' dist/meteocss-card.js | head -n 1)
-          TAG="v$VERSION"
+          TAG="${{ inputs.tag || github.ref_name }}"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "Found version: $TAG"
-
-      - name: Check if tag already exists
-        id: check
-        run: |
-          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create and push tag
-        if: steps.check.outputs.skip == 'false'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag ${{ steps.version.outputs.tag }}
-          git push origin ${{ steps.version.outputs.tag }}
 
       - name: Build release zip
-        if: steps.check.outputs.skip == 'false'
         run: |
           cd dist
           zip ../meteocss-card.zip meteocss-card.js
 
       - name: Create GitHub Release
-        if: steps.check.outputs.skip == 'false'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: "MeteoCSS Card ${{ steps.version.outputs.tag }}"
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "MeteoCSS Card ${{ steps.tag.outputs.tag }}"
           generate_release_notes: true
           files: meteocss-card.zip
