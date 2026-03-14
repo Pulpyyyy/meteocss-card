@@ -1,10 +1,14 @@
-name: Sync Tag with JS Version
+name: Auto Tag
 
 on:
-  push:
-    branches:
-      - main
-      - master
+  workflow_call:
+    outputs:
+      tag:
+        description: 'The version tag extracted from the JS file'
+        value: ${{ jobs.tag.outputs.tag }}
+      skip:
+        description: 'Whether the tag already existed'
+        value: ${{ jobs.tag.outputs.skip }}
 
 jobs:
   tag:
@@ -46,12 +50,3 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag ${{ steps.version.outputs.tag }}
           git push origin ${{ steps.version.outputs.tag }}
-
-  release:
-    needs: tag
-    if: needs.tag.outputs.skip == 'false'
-    uses: ./.github/workflows/release.yml
-    with:
-      tag: ${{ needs.tag.outputs.tag }}
-    permissions:
-      contents: write

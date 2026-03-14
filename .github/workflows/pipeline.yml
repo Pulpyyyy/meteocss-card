@@ -1,0 +1,29 @@
+name: Release Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: 'Force release even if tag already exists'
+        type: boolean
+        default: false
+        required: false
+
+jobs:
+  auto-tag:
+    uses: ./.github/workflows/auto-tag.yml
+    permissions:
+      contents: write
+
+  release:
+    needs: auto-tag
+    if: needs.auto-tag.outputs.skip == 'false' || inputs.force_release == true
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.auto-tag.outputs.tag }}
+    permissions:
+      contents: write
