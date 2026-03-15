@@ -1,7 +1,4 @@
 {
   "name": "MeteoCSS Card",
-  "filename": "meteocss-card.js",
-  "render_readme": true,
-  "zip_release": true,
-  "homeassistant": "2023.12.0"
+  "homeassistant": "2025.5.0"
 }
