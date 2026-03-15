@@ -33,12 +33,22 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Found version: $TAG"
 
-      - name: Check if tag already exists
+      - name: Check if tag and release already exist
         id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-            echo "Tag ${{ steps.version.outputs.tag }} already exists. Skipping."
+          TAG="${{ steps.version.outputs.tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            # Tag exists — check if a GitHub release also exists
+            STATUS=$(gh release view "$TAG" --json tagName --jq '.tagName' 2>/dev/null || echo "")
+            if [ -n "$STATUS" ]; then
+              echo "skip=true" >> $GITHUB_OUTPUT
+              echo "Tag $TAG and release already exist. Skipping."
+            else
+              echo "skip=false" >> $GITHUB_OUTPUT
+              echo "Tag $TAG exists but no release found. Will create release."
+            fi
           else
             echo "skip=false" >> $GITHUB_OUTPUT
           fi

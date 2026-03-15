@@ -2474,8 +2474,6 @@ class MeteoCard extends HTMLElement {
                 try {
                     this._shadowTexW = depthImg.width;
                     this._shadowTexH = depthImg.height;
-                    canvas.width  = depthImg.width;
-                    canvas.height = depthImg.height;
                     gl.activeTexture(gl.TEXTURE0);
                     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, depthImg);
                     const shared = SingletonManager.getSingleton(this._singletonId);
@@ -2483,6 +2481,15 @@ class MeteoCard extends HTMLElement {
                     this._shadowIsDemo = null;
                     this._switchShadowQuality(isDemo);
                     this._shadowReady = true;
+                    if (!this._shadowResizeObserver) {
+                        this._shadowResizeObserver = new ResizeObserver(() => {
+                            if (this._shadowReady) {
+                                this._shadowIsDemo = null; // force canvas resize
+                                this._updateShadow();
+                            }
+                        });
+                        this._shadowResizeObserver.observe(canvas.parentElement || canvas);
+                    }
                     this._updateShadow();
                 } catch (e) {
                     console.error('[MeteoCard] shadow onReady:', e);
@@ -2606,18 +2613,21 @@ class MeteoCard extends HTMLElement {
         if (canvas && this._shadowTexW) {
             const iw = this._shadowTexW;
             const ih = this._shadowTexH;
+            // Canvas buffer follows card CSS size (+ devicePixelRatio), not depthmap dimensions.
+            // The depthmap is just a UV texture — its pixel size only matters for uTexel (normal/ray step).
+            const dpr = window.devicePixelRatio || 1;
+            const rect = (canvas.parentElement || canvas).getBoundingClientRect();
+            const baseW = rect.width  > 0 ? rect.width  * dpr : iw;
+            const baseH = rect.height > 0 ? rect.height * dpr : ih;
             let factor = isDemo ? 0.5 : 1.0;
             if (!isDemo) {
                 const blur = (this._meteoConfig?.get('shadow') || {}).blur ?? 0;
                 if (blur > 0) {
-                    // Slightly reduce render resolution to complement CSS blur;
-                    // CSS upscaling adds natural smoothing on top of the filter.
-                    // blur=2→~0.9, blur=5→~0.75, blur=10→~0.5 (min 0.5)
                     factor = Math.max(0.5, 1.0 - blur * 0.05);
                 }
             }
-            canvas.width  = Math.round(iw * factor);
-            canvas.height = Math.round(ih * factor);
+            canvas.width  = Math.round(baseW * factor);
+            canvas.height = Math.round(baseH * factor);
             gl.viewport(0, 0, canvas.width, canvas.height);
             gl.uniform2f(this._shadowUniforms.uTexel, 1 / iw, 1 / ih);
         }
@@ -2641,6 +2651,10 @@ class MeteoCard extends HTMLElement {
         this._shadowIsDemo = null;
         this._shadowTexW = null;
         this._shadowTexH = null;
+        if (this._shadowResizeObserver) {
+            this._shadowResizeObserver.disconnect();
+            this._shadowResizeObserver = null;
+        }
         clearTimeout(this._shadowInitTimer);
         this._shadowInitTimer = null;
     }
