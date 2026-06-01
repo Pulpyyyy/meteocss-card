@@ -1,4 +1,4 @@
-console.info("%c 🙂 MeteoCSS Card %c v3.0.0%c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
+console.info("%c 🙂 MeteoCSS Card %c v3.1.0%c", "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
 
 const _genId = () => {
     try {
@@ -14,7 +14,23 @@ const CARD_CONFIG = {
     type: 'meteo-card',
     name: 'MeteoCSS Card',
     description: 'Weather card with realistic weather conditions, sky, sun, and moon.',
-    preview: true
+    documentationURL: 'https://github.com/Pulpyyyy/meteocss-card',
+    preview: true,
+    // HA 2026.6 entity-first card picker: suggest this card when a weather entity is selected.
+    getEntitySuggestion: (hass, entityId) => {
+        if (entityId.split('.')[0] !== 'weather') {
+            return null;
+        }
+        const sunEntity = (hass && Object.keys(hass.states).find(id => id.startsWith('sun.'))) || 'sun.sun';
+        return {
+            config: {
+                type: 'custom:meteo-card',
+                weather: entityId,
+                sun_entity: sunEntity,
+                layers: ['sky', 'sun', 'moon', 'background', 'foreground']
+            }
+        };
+    }
 };
 
 const METEO_SINGLETONS = {};
@@ -1403,10 +1419,24 @@ class MeteoCard extends HTMLElement {
         };
     }
 
-    static getStubConfig() {
+    static getStubConfig(hass, entities, entitiesFallback) {
+        // Pre-fill a weather entity for the 2026.6 entity-first card picker.
+        // 1) entity selected in the picker, 2) fallback list, 3) first available in hass.
+        const pickWeather = (list) =>
+            (list || []).filter(id => id.startsWith('weather.'));
+
+        let chosen = pickWeather(entities);
+        if (!chosen.length) chosen = pickWeather(entitiesFallback);
+        if (!chosen.length && hass) {
+            chosen = Object.keys(hass.states).filter(id => id.startsWith('weather.'));
+        }
+
+        // Use a real sun entity if one exists, otherwise the standard sun.sun.
+        const sunEntity = (hass && Object.keys(hass.states).find(id => id.startsWith('sun.'))) || 'sun.sun';
+
         return {
-            weather: 'weather.home',
-            sun_entity: 'sun.sun',
+            weather: chosen[0] || 'weather.home',
+            sun_entity: sunEntity,
             layers: ['sky', 'sun', 'moon', 'background', 'foreground']
         };
     }
