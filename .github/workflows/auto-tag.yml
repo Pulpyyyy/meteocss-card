@@ -28,7 +28,11 @@ jobs:
       - name: Extract Version from JS
         id: version
         run: |
-          VERSION=$(grep -oP 'MeteoCSS Card %c v\K[0-9]+\.[0-9]+\.[0-9]+' dist/meteocss-card.js | head -n 1)
+          VERSION=$(grep -oP 'CARD_VERSION\s*=\s*"\K[0-9]+\.[0-9]+\.[0-9]+' dist/meteocss-card.js | head -n 1)
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: Could not extract CARD_VERSION from dist/meteocss-card.js"
+            exit 1
+          fi
           TAG="v$VERSION"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Found version: $TAG"
