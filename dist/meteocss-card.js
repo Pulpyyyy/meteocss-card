@@ -928,6 +928,9 @@ class MeteoCard extends HTMLElement {
         // IntersectionObserver: pause SharedAnimationLoop when off-screen.
         this._visibilityObserver = null;
         this._isVisible = true;
+        // ResizeObserver: keep cached card dimensions (used for %→px celestial
+        // positioning) in sync when the card is resized.
+        this._cardResizeObserver = null;
         this._isSlaveListening = false;
         // Open shadow root once — all internal DOM lives here, isolating CSS
         // from HA global themes while CSS custom properties still penetrate.
@@ -1304,6 +1307,35 @@ class MeteoCard extends HTMLElement {
                 }
             }, { threshold: 0 });
             this._visibilityObserver.observe(this);
+
+            // Sun/moon positions are converted from % to px using _cardWidth/_cardHeight,
+            // captured once in _cacheDOM — without this observer they go stale on
+            // window resize, mobile rotation or dashboard reflow.
+            if (this._cardResizeObserver) {
+                this._cardResizeObserver.disconnect();
+            }
+            this._cardResizeObserver = new ResizeObserver(() => {
+                if (!this.content || !this._singletonId) return;
+                const w = this.content.offsetWidth;
+                const h = this.content.offsetHeight;
+                if (!w || !h || (w === this._cardWidth && h === this._cardHeight)) return;
+                this._cardWidth = w;
+                this._cardHeight = h;
+                const state = SingletonManager.getActualState(this._singletonId);
+                if (!state) return;
+                // Reposition with the transition suspended so the bodies snap to
+                // their new spot instead of gliding while the user resizes.
+                const reposition = (el, pos) => {
+                    if (!el || !pos) return;
+                    const prevTransition = el.style.transition || '';
+                    el.style.transition = 'none';
+                    this._positionCelestialBody(el, pos);
+                    requestAnimationFrame(() => { el.style.transition = prevTransition; });
+                };
+                reposition(this._getCachedEl('sunWrapper', '.sun-wrapper'), state.sunPos);
+                reposition(this._getCachedEl('moonContainer', '.moon-container'), state.moonPos);
+            });
+            this._cardResizeObserver.observe(this);
         } catch (e) {
             console.error('[MeteoCard] connectedCallback:', e);
         }
@@ -1314,6 +1346,11 @@ class MeteoCard extends HTMLElement {
             if (this._visibilityObserver) {
                 this._visibilityObserver.disconnect();
                 this._visibilityObserver = null;
+            }
+
+            if (this._cardResizeObserver) {
+                this._cardResizeObserver.disconnect();
+                this._cardResizeObserver = null;
             }
 
             if (this._editModeHandler) {
