@@ -1285,6 +1285,7 @@ class MeteoCard extends HTMLElement {
                 if (!w || !h || (w === this._cardWidth && h === this._cardHeight)) return;
                 this._cardWidth = w;
                 this._cardHeight = h;
+                this._updateSizeVars();
                 const state = SingletonManager.getActualState(this._singletonId);
                 if (!state) return;
                 // Reposition with the transition suspended so the bodies snap to
@@ -1854,12 +1855,16 @@ class MeteoCard extends HTMLElement {
         if (this._loadedKeyframes === cacheKey) return;
         this._loadedKeyframes = cacheKey;
 
+        // Travel distances use the card's own dimensions (--meteo-w/--meteo-h,
+        // published by _updateSizeVars) so clouds/rain/snow spend their whole
+        // cycle inside the card instead of crossing the viewport mostly
+        // off-card. Viewport units remain as fallbacks until first layout.
         const keyframes = {
-            base: `@keyframes to-right { to { transform:translateX(calc(100vw + 500px)); } } @keyframes flash { 0%,90%,94%,100%{opacity:0;} 92%{opacity:0.4;} } @keyframes puff-drift { 0% { transform:translateX(calc(var(--pdrift) * -1)); } 100% { transform:translateX(var(--pdrift)); } }`,
+            base: `@keyframes to-right { to { transform:translateX(calc(var(--meteo-w, 100vw) + 500px)); } } @keyframes flash { 0%,90%,94%,100%{opacity:0;} 92%{opacity:0.4;} } @keyframes puff-drift { 0% { transform:translateX(calc(var(--pdrift) * -1)); } 100% { transform:translateX(var(--pdrift)); } }`,
             star: `@keyframes star { 0%,100%{opacity:1;} 50%{opacity:0.2;} }`,
             shot: `@keyframes shot { 0%{transform:rotate(45deg) translateX(-200px);opacity:0;} 1%{opacity:1;} 10%{transform:rotate(45deg) translateX(1200px);opacity:0;} 100%{opacity:0;} }`,
-            rain: `@keyframes rain-fall { to { transform:translateY(110vh) skewX(-15deg); } }`,
-            snow: `@keyframes snow-fall { 0% { transform: translateY(-10vh); } 100% { transform: translateY(110vh); } } @keyframes snow-sway { 0% { transform: translateX(calc(var(--sway) * -1)); } 100% { transform: translateX(var(--sway)); } }`,
+            rain: `@keyframes rain-fall { to { transform:translateY(calc(var(--meteo-h, 100vh) * 1.1)) skewX(-15deg); } }`,
+            snow: `@keyframes snow-fall { 0% { transform: translateY(calc(var(--meteo-h, 100vh) * -0.1)); } 100% { transform: translateY(calc(var(--meteo-h, 100vh) * 1.1)); } } @keyframes snow-sway { 0% { transform: translateX(calc(var(--sway) * -1)); } 100% { transform: translateX(var(--sway)); } }`,
             fog: `@keyframes fog-boil { 0% { transform: scale(1) translateY(0); opacity: var(--fog-opacity-min); } 50% { opacity: var(--fog-opacity-max); } 100% { transform: scale(1.15) translateY(-20px); opacity: var(--fog-opacity-min); } }`
         };
 
@@ -2086,6 +2091,23 @@ class MeteoCard extends HTMLElement {
         // Cache card dimensions for transform-based celestial body positioning.
         this._cardWidth  = this.content?.offsetWidth  || 0;
         this._cardHeight = this.content?.offsetHeight || 0;
+        this._updateSizeVars();
+    }
+
+    // Publishes the card dimensions as CSS custom properties consumed by the
+    // animation keyframes: --meteo-w/--meteo-h size the travel distances to
+    // the card (instead of the viewport), and the unitless --meteo-wr/hr
+    // ratios scale the durations so the px/s speeds stay the same as the
+    // original viewport-based animations.
+    _updateSizeVars() {
+        if (!this.content || !this._cardWidth || !this._cardHeight) return;
+        const style = this.content.style;
+        style.setProperty('--meteo-w', `${this._cardWidth}px`);
+        style.setProperty('--meteo-h', `${this._cardHeight}px`);
+        const vw = window.innerWidth || this._cardWidth;
+        const vh = window.innerHeight || this._cardHeight;
+        style.setProperty('--meteo-wr', Math.max(0.05, this._cardWidth / vw).toFixed(3));
+        style.setProperty('--meteo-hr', Math.max(0.05, this._cardHeight / vh).toFixed(3));
     }
 
     _updateStaticDOM(state) {
@@ -2966,7 +2988,7 @@ class MeteoCard extends HTMLElement {
                     css.content += `.${puffCls}{position:absolute;border-radius:50%;background:var(--puff-bg);filter:blur(10px)}`;
                 }
                 const puffBg = `radial-gradient(circle at 35% 30%,rgba(${Math.min(255, bc + 45)},${Math.min(255, bc + 45)},${Math.min(255, bc + 45)},1) 0%,rgba(${bc},${bc},${bc + 10},.8) 50%,rgba(${Math.max(0, bc - 55)},${Math.max(0, bc - 55)},${Math.max(0, bc - 55 + 20)},.4) 100%)`;
-                css.content += `.${id}{position:absolute;top:${tp}%;left:-${cw * 2}px;width:${cw}px;height:${Math.round(bs * 2.2)}px;animation:to-right ${dur}s linear infinite;animation-delay:-${delay}s;filter:url(#cloud-distort) blur(5px);opacity:${opacity};mix-blend-mode:${isNight ? 'normal' : 'screen'};z-index:${zIdx};pointer-events:none;--puff-bg:${puffBg}}`;
+                css.content += `.${id}{position:absolute;top:${tp}%;left:-${cw * 2}px;width:${cw}px;height:${Math.round(bs * 2.2)}px;animation:to-right calc(${dur}s * var(--meteo-wr, 1)) linear infinite;animation-delay:-${delay}s;filter:url(#cloud-distort) blur(5px);opacity:${opacity};mix-blend-mode:${isNight ? 'normal' : 'screen'};z-index:${zIdx};pointer-events:none;--puff-bg:${puffBg}}`;
 
                 let puffs = '';
                 for (let j = 0; j < pc; j++) {
@@ -3030,7 +3052,7 @@ class MeteoCard extends HTMLElement {
             const cls = `${this._cardId}-rain`;
             if (!css.shared.has(cls)) {
                 css.shared.add(cls);
-                css.content += `.${cls}{position:absolute;width:${rainWidth}px;height:40px;background:linear-gradient(to bottom,transparent,rgba(255,255,255,0.4));top:-50px;animation:rain-fall 0.6s linear infinite;z-index:500;left:var(--l);animation-delay:var(--d)}`;
+                css.content += `.${cls}{position:absolute;width:${rainWidth}px;height:40px;background:linear-gradient(to bottom,transparent,rgba(255,255,255,0.4));top:-50px;animation:rain-fall calc(0.6s * var(--meteo-hr, 1)) linear infinite;z-index:500;left:var(--l);animation-delay:var(--d)}`;
             }
             let html = '';
             for (let i = 0; i < n; i++) {
@@ -3052,7 +3074,7 @@ class MeteoCard extends HTMLElement {
             // Fall (translateY) on the wrapper, sway (translateX) on the inner
             // flake: both animations target transform, so they must live on
             // separate elements to compose — and both stay compositor-only.
-            css.content += `.${cls}{position:absolute;width:var(--w);height:var(--w);left:var(--l);top:-10px;animation:snow-fall var(--dur) linear infinite;animation-delay:var(--dd);z-index:500}`;
+            css.content += `.${cls}{position:absolute;width:var(--w);height:var(--w);left:var(--l);top:-10px;animation:snow-fall calc(var(--dur) * var(--meteo-hr, 1)) linear infinite;animation-delay:var(--dd);z-index:500}`;
             css.content += `.${cls}-flake{width:100%;height:100%;background:#FFFFFF;border-radius:50%;opacity:var(--op);filter:blur(1px);animation:snow-sway var(--sdur) ease-in-out infinite alternate;animation-delay:var(--dd)}`;
         }
         let h = '';
