@@ -15,7 +15,7 @@ https://github.com/user-attachments/assets/07463969-425f-423e-a758-a8abea28b8b6
 
 - 🌞 **Realistic Sun** : Azimuth/elevation position tracking with aura and halo
 - 🌙 **Detailed Moon** : Complete lunar phases with 3D texture
-- ☁️ **Animated Clouds** : Multiple coverage levels with real-time distortion, based on wind speed
+- ☁️ **Animated Clouds** : Multiple coverage levels with real-time distortion, based on wind speed (unit-aware: km/h, mph, m/s, kn, ft/s)
 - 🌧️ **Weather Effects** : Rain, snow, fog with smooth animations
 - ⚡ **Extreme Conditions** : Realistic lightning for storms
 - 🌅 **Adaptive Gradients** : Sky changes with conditions and time
@@ -245,6 +245,8 @@ layers:
 - **Play/Pause Button** : Control time simulation (speeds up 60 seconds = 1 full day cycle)
 - **Stop Button** : Return to real weather data
 - **Info Panel** : Shows current simulated time, sun/moon positions, phase, altitude, azimuth, cloud counts, and card statistics
+
+> The demo stops automatically after 10 minutes and returns to real weather data.
 
 **How it works:**
 Demo mode automatically cycles through all weather conditions. The demo UI appears in the top-left corner with:
@@ -575,6 +577,24 @@ This is especially useful in picture-elements layouts where you want fine contro
 
 **BG Ratio Explanation**: The proportion of clouds rendered in the background layer (0.0 = all foreground, 1.0 = all background). This creates visual depth when using multiple cards or picture-elements.
 
+### Home Assistant State Mapping
+
+Raw weather entity states are mapped to the card conditions above (substring matching, so custom integrations using the same keywords work too):
+
+| HA weather state | Card condition |
+|------------------|----------------|
+| `sunny`, `windy`, `exceptional` | `sunny` |
+| `clear-night` | `clear-night` |
+| `clear` (custom integrations) | `sunny` by day, `clear-night` at night |
+| `partlycloudy`, `windy-variant` | `partlycloudy` |
+| `cloudy` | `cloudy` |
+| `rainy` | `rainy` |
+| `pouring`, `hail` | `pouring` |
+| `lightning`, `lightning-rainy` | `lightning-rainy` |
+| `snowy`, `snowy-rainy` | `snowy` |
+| `fog` | `fog` |
+| anything else | `sunny` |
+
 ## Complete Configuration Reference (All Default Values)
 
 ```yaml
@@ -591,7 +611,9 @@ moon_degrees_entity: sensor.luna_lunar_phase_degrees # Optional
 # --- General Settings ---
 house_angle: 25                         # Scene rotation offset (0-360°)
 invert_azimuth: false                   # Add 180° to azimuth if view is inverted
-singleton_id: "UUID"                    # Unique ID for syncing multiple cards              
+# singleton_id: my_group                # Optional — only set it to sync multiple cards.
+                                        # Without it each card gets its own auto-generated
+                                        # ID and stays independent.
 
 # --- Orbit Configuration ---
 # Coordinates and radii expressed as % of card size
@@ -880,6 +902,16 @@ sun_entity: sun.sun
 - Ensure both cards have the same `singleton_id`
 - Check browser console for errors
 - Verify both cards are on the same screen/dashboard
+
+## 🧪 Development
+
+The repository ships a dependency-free regression test suite in [`tests/`](tests/) — each file loads `dist/meteocss-card.js` in a stubbed DOM and verifies one behavior (real-data refresh, resize handling, weather state mapping, shadow rendering, WebGL context loss…).
+
+```bash
+node tests/run-all.js
+```
+
+See [tests/README.md](tests/README.md) for the full coverage table and how to run without Node.js installed.
 
 ## 📜 License
 
