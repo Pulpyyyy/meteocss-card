@@ -1962,11 +1962,11 @@ class MeteoCard extends HTMLElement {
         this._loadedKeyframes = cacheKey;
 
         const keyframes = {
-            base: `@keyframes to-right { to { transform:translateX(calc(100vw + 500px)); } } @keyframes flash { 0%,90%,94%,100%{opacity:0;} 92%{opacity:0.4;} } @keyframes puff-drift { 0% { margin-left:calc(var(--pdrift) * -1); } 100% { margin-left:var(--pdrift); } }`,
+            base: `@keyframes to-right { to { transform:translateX(calc(100vw + 500px)); } } @keyframes flash { 0%,90%,94%,100%{opacity:0;} 92%{opacity:0.4;} } @keyframes puff-drift { 0% { transform:translateX(calc(var(--pdrift) * -1)); } 100% { transform:translateX(var(--pdrift)); } }`,
             star: `@keyframes star { 0%,100%{opacity:1;} 50%{opacity:0.2;} }`,
             shot: `@keyframes shot { 0%{transform:rotate(45deg) translateX(-200px);opacity:0;} 1%{opacity:1;} 10%{transform:rotate(45deg) translateX(1200px);opacity:0;} 100%{opacity:0;} }`,
             rain: `@keyframes rain-fall { to { transform:translateY(110vh) skewX(-15deg); } }`,
-            snow: `@keyframes snow-fall { 0% { transform: translateY(-10vh); } 100% { transform: translateY(110vh); } } @keyframes snow-sway { 0% { margin-left: calc(var(--sway) * -1); } 100% { margin-left: var(--sway); } }`,
+            snow: `@keyframes snow-fall { 0% { transform: translateY(-10vh); } 100% { transform: translateY(110vh); } } @keyframes snow-sway { 0% { transform: translateX(calc(var(--sway) * -1)); } 100% { transform: translateX(var(--sway)); } }`,
             fog: `@keyframes fog-boil { 0% { transform: scale(1) translateY(0); opacity: var(--fog-opacity-min); } 50% { opacity: var(--fog-opacity-max); } 100% { transform: scale(1.15) translateY(-20px); opacity: var(--fog-opacity-min); } }`
         };
 
@@ -3154,7 +3154,11 @@ class MeteoCard extends HTMLElement {
         const cls = `${this._cardId}-snow`;
         if (!css.shared.has(cls)) {
             css.shared.add(cls);
-            css.content += `.${cls}{position:absolute;width:var(--w);height:var(--w);background:#FFFFFF;border-radius:50%;left:var(--l);top:-10px;opacity:var(--op);filter:blur(1px);animation:snow-fall var(--dur) linear infinite,snow-sway var(--sdur) ease-in-out infinite alternate;animation-delay:var(--dd);z-index:500}`;
+            // Fall (translateY) on the wrapper, sway (translateX) on the inner
+            // flake: both animations target transform, so they must live on
+            // separate elements to compose — and both stay compositor-only.
+            css.content += `.${cls}{position:absolute;width:var(--w);height:var(--w);left:var(--l);top:-10px;animation:snow-fall var(--dur) linear infinite;animation-delay:var(--dd);z-index:500}`;
+            css.content += `.${cls}-flake{width:100%;height:100%;background:#FFFFFF;border-radius:50%;opacity:var(--op);filter:blur(1px);animation:snow-sway var(--sdur) ease-in-out infinite alternate;animation-delay:var(--dd)}`;
         }
         let h = '';
         for (let i = 0; i < n; i++) {
@@ -3162,7 +3166,7 @@ class MeteoCard extends HTMLElement {
             const sw = Math.round(15 + Math.random() * 30);
             const dur = (7 + Math.random() * 5).toFixed(1);
             const sdur = (2 + Math.random() * 2).toFixed(1);
-            h += `<div class="${cls}" style="--w:${w}px;--l:${(Math.random()*100).toFixed(1)}%;--op:${(0.4+Math.random()*0.6).toFixed(2)};--dur:${dur}s;--sdur:${sdur}s;--dd:-${(Math.random()*10).toFixed(1)}s;--sway:${sw}px"></div>`;
+            h += `<div class="${cls}" style="--w:${w}px;--l:${(Math.random()*100).toFixed(1)}%;--op:${(0.4+Math.random()*0.6).toFixed(2)};--dur:${dur}s;--sdur:${sdur}s;--dd:-${(Math.random()*10).toFixed(1)}s;--sway:${sw}px"><div class="${cls}-flake"></div></div>`;
         }
         return h;
     }
