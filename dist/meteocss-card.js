@@ -1,4 +1,4 @@
-const CARD_VERSION = "3.1.0";
+const CARD_VERSION = "3.2.0";
 
 console.info(`%c 🙂 MeteoCSS Card %c v${CARD_VERSION}%c`, "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
 
