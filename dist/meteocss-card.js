@@ -985,8 +985,14 @@ class MeteoCard extends HTMLElement {
             this._previousStates.azimuth   = newSunAzimuth;
             this._previousStates.elevation = newSunElevation;
 
-            if (this._validatedEntities.weather === null) {
-                this._validateEntitiesFromHass(hass);
+            // Data changed — re-validate entities and recompute the real state,
+            // otherwise _update() renders the stale actualState cached in the
+            // singleton (sun/moon/condition would stay frozen at their initial values).
+            this._validateEntitiesFromHass(hass);
+            const refreshedData = this._realData();
+            if (refreshedData) {
+                sharedState.realDataReady = true;
+                sharedState.realDataTimestamp = Date.now();
             }
 
             this._update();
