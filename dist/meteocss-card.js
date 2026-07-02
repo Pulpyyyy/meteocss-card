@@ -176,9 +176,6 @@ class SingletonManager {
                 METEO_SINGLETONS[singletonId].dataMaster = null;
             }
             if (METEO_SINGLETONS[singletonId].registeredCards.size === 0) {
-                if (METEO_SINGLETONS[singletonId].demoUIElement) {
-                    METEO_SINGLETONS[singletonId].demoUIElement.remove();
-                }
                 delete METEO_SINGLETONS[singletonId];
             }
         }
@@ -499,7 +496,6 @@ class MeteoConfig {
         moon_degrees_entity: 'sensor.luna_lunar_phase_degrees',
         house_angle: 25,
         invert_azimuth: false,
-        singleton_id: "UUID",
         orbit: {
             rx: 45,
             ry: 40,
@@ -728,46 +724,6 @@ class MeteoConfig {
 }
 
 /**
- * LRU (Least Recently Used) cache for MeteoCoordsCalculator results.
- * Coordinate projection involves trigonometry that is called every animation
- * frame; caching avoids redundant computation when azimuth and elevation have
- * not changed. The cache is keyed on rounded (azimuth:elevation) pairs and
- * evicts the oldest entry once it reaches MAX_SIZE entries.
- * One instance lives per MeteoCard and is cleared whenever the sun moves.
- */
-class CoordsCache {
-    static MAX_SIZE = 200;
-
-    constructor() {
-        this.cache = new Map();
-    }
-
-    getCoords(azimuth, elevation, config) {
-        const key = `${Math.round(azimuth * 10) / 10}:${Math.round(elevation * 10) / 10}`;
-
-        if (this.cache.has(key)) {
-            const val = this.cache.get(key);
-            // Refresh insertion order for LRU
-            this.cache.delete(key);
-            this.cache.set(key, val);
-            return val;
-        }
-
-        const coords = MeteoCoordsCalculator.getCoords(azimuth, elevation, config);
-        if (this.cache.size >= CoordsCache.MAX_SIZE) {
-            // Evict oldest entry (first key in insertion order)
-            this.cache.delete(this.cache.keys().next().value);
-        }
-        this.cache.set(key, coords);
-        return coords;
-    }
-
-    clear() {
-        this.cache.clear();
-    }
-}
-
-/**
  * Single shared requestAnimationFrame loop used by all slave MeteoCard instances
  * (cards that mirror the state computed by the demo-master). Instead of each
  * slave running its own rAF loop, they all register here so the browser schedules
@@ -915,14 +871,9 @@ class MeteoCard extends HTMLElement {
         this._lastNight = null;
         this._hass = null;
         this._isDataMaster = false;
-        this._coordsCache = new CoordsCache();
-        this._lastSunAzimuth = null;
-        this._lastSunElevation = null;
         this._lastLayers = [];
-        this._lastSunElevationForSVG = null;
         this._lastMoonPhaseForSVG = null;
         this._lastMoonPhaseDegreesForSVG = null;
-        this._lastLensMinute = null;
         this._lastDemoUIUpdate = 0;
         // Last shared-state revision processed by _updateOptimized (slave loop).
         this._lastSeenStateVersion = -1;
@@ -1028,17 +979,6 @@ class MeteoCard extends HTMLElement {
                     }
                 }
             });
-
-            const currentSunAz = parseFloat(hass.states[this._sunEntityId]?.attributes?.azimuth);
-            const currentSunEl = parseFloat(hass.states[this._sunEntityId]?.attributes?.elevation);
-
-            if (!isNaN(currentSunAz) && !isNaN(currentSunEl)) {
-                if (this._lastSunAzimuth !== currentSunAz || this._lastSunElevation !== currentSunEl) {
-                    this._coordsCache.clear();
-                    this._lastSunAzimuth = currentSunAz;
-                    this._lastSunElevation = currentSunEl;
-                }
-            }
 
             this._validatedEntities.moonAzimuth = this._resolveMoonEntity(hass, this._moonAzimuthEntityId, ['sensor.luna_lunar_azimuth', 'sensor.moon_azimuth']);
             this._validatedEntities.moonElevation = this._resolveMoonEntity(hass, this._moonElevationEntityId, ['sensor.luna_lunar_elevation', 'sensor.moon_elevation']);
@@ -1428,50 +1368,41 @@ class MeteoCard extends HTMLElement {
         }
     }
 
-    // Promotes this card to data master if the current master has gone away
-    // (e.g. disconnected without unregistering). Guards against a singleton
-    // group being left with real data updates blocked because no master exists.
-    _recheckMaster() {
-        const singleton = SingletonManager.getSingleton(this._singletonId);
-        if (!singleton.dataMaster || !singleton.registeredCards.has(singleton.dataMaster)) {
-            singleton.dataMaster = this._cardId;
+    // Synchronises this card's demo-UI-master role with the singleton's
+    // election state: promotes it (creating the engine and starting the demo)
+    // or demotes it. Returns true when the card just became master.
+    _syncDemoUIMasterRole() {
+        const isMaster = SingletonManager.isMaster(this._singletonId, this._cardId);
+
+        if (isMaster && !this._isDemoUIMaster) {
+            this._isDemoUIMaster = true;
+            if (!this._demoEngine) {
+                this._demoEngine = new DemoEngine(this._meteoConfig, this._singletonId);
+                const initialState = this._demoEngine.compute();
+                SingletonManager.setActualState(this._singletonId, initialState);
+            }
+            SingletonManager.startDemo(this._singletonId);
+            this._startDemo();
+            return true;
         }
+
+        if (!isMaster && this._isDemoUIMaster) {
+            this._isDemoUIMaster = false;
+            this._stopDemo();
+        }
+        return false;
     }
 
     _checkForMasterAndStartDemo() {
-        const sharedState = SingletonManager.getSingleton(this._singletonId);
-
         const shouldBeDataMaster = SingletonManager.electDataMaster(
             this._singletonId,
             this._cardId,
             this._isDemoLayerEnabled
         );
-
-        if (shouldBeDataMaster && !this._isDataMaster) {
-            this._isDataMaster = true;
-        }
-        if (!shouldBeDataMaster && this._isDataMaster) {
-            this._isDataMaster = false;
-        }
+        this._isDataMaster = shouldBeDataMaster;
 
         if (this._isDemoLayerEnabled) {
-            const isMaster = SingletonManager.isMaster(this._singletonId, this._cardId);
-
-            if (isMaster && !this._isDemoUIMaster) {
-                this._isDemoUIMaster = true;
-                if (!this._demoEngine) {
-                    this._demoEngine = new DemoEngine(this._meteoConfig, this._singletonId);
-                    const initialState = this._demoEngine.compute();
-                    SingletonManager.setActualState(this._singletonId, initialState);
-                }
-                SingletonManager.startDemo(this._singletonId);
-                this._startDemo();
-            }
-
-            if (!isMaster && this._isDemoUIMaster) {
-                this._isDemoUIMaster = false;
-                this._stopDemo();
-            }
+            this._syncDemoUIMasterRole();
         }
     }
 
@@ -1516,22 +1447,11 @@ class MeteoCard extends HTMLElement {
         this._cleanupAllListeners();
         this._cleanupShadow();
         this._clearDOMCache();
-        this._coordsCache.clear();
-        this._demoListeners = [];
         this._previousStates = {};
     }
 
     _cleanupAllListeners() {
-        this._demoListeners.forEach(({
-            el,
-            ev,
-            fn
-        }) => {
-            if (el && typeof el.removeEventListener === 'function') {
-                el.removeEventListener(ev, fn);
-            }
-        });
-        this._demoListeners = [];
+        this._cleanupEvents();
 
         if (this._boundPlayPauseFn) {
             const btn = this.shadowRoot.querySelector('#btn-toggle-demo');
@@ -1571,41 +1491,6 @@ class MeteoCard extends HTMLElement {
             lensFlare: null,
             shadowCanvas: null
         };
-    }
-
-    _clearStyleSheets() {
-        if (this._dynamicStyleSheet && this._dynamicStyleSheet.parentNode) {
-            try {
-                this._dynamicStyleSheet.parentNode.removeChild(this._dynamicStyleSheet);
-            } catch (e) {
-                console.warn('[MeteoCard] Error removing dynamicStyleSheet:', e);
-            }
-        }
-        this._dynamicStyleSheet = null;
-
-        if (this._keyframesSheet && this._keyframesSheet.parentNode) {
-            try {
-                this._keyframesSheet.parentNode.removeChild(this._keyframesSheet);
-            } catch (e) {
-                console.warn('[MeteoCard] Error removing keyframesSheet:', e);
-            }
-        }
-        this._keyframesSheet = null;
-
-        // Adopted StyleSheets path: remove the shared sheet from this shadow root.
-        if (_meteoSharedSheet && this.shadowRoot.adoptedStyleSheets.includes(_meteoSharedSheet)) {
-            this.shadowRoot.adoptedStyleSheets = this.shadowRoot.adoptedStyleSheets.filter(s => s !== _meteoSharedSheet);
-        }
-
-        // Fallback path: remove the injected <style> element if present.
-        const injectedStyle = this.shadowRoot.querySelector('style[data-meteo-injected]');
-        if (injectedStyle && injectedStyle.parentNode) {
-            try {
-                injectedStyle.parentNode.removeChild(injectedStyle);
-            } catch (e) {
-                console.warn('[MeteoCard] Error removing injectedStyle:', e);
-            }
-        }
     }
 
     _startDemo() {
@@ -1695,10 +1580,6 @@ class MeteoCard extends HTMLElement {
         return div.innerHTML;
     }
 
-    _getCoords(azimuth, elevation) {
-        return MeteoCoordsCalculator.getCoords(azimuth, elevation, this._meteoConfig);
-    }
-
     _update() {
         try {
             if (!this.content) return;
@@ -1720,21 +1601,8 @@ class MeteoCard extends HTMLElement {
             let rawData = SingletonManager.getActualState(this._singletonId);
 
             if (this._isDemoLayerEnabled) {
-                const shouldBeMaster = SingletonManager.isMaster(this._singletonId, this._cardId);
-                if (shouldBeMaster && !this._isDemoUIMaster) {
-                    this._isDemoUIMaster = true;
-                    if (!this._demoEngine) {
-                        this._demoEngine = new DemoEngine(this._meteoConfig, this._singletonId);
-                        const initialState = this._demoEngine.compute();
-                        SingletonManager.setActualState(this._singletonId, initialState);
-                    }
-                    SingletonManager.startDemo(this._singletonId);
-                    this._startDemo();
+                if (this._syncDemoUIMasterRole()) {
                     rawData = SingletonManager.getActualState(this._singletonId);
-                }
-                if (!shouldBeMaster && this._isDemoUIMaster) {
-                    this._isDemoUIMaster = false;
-                    this._stopDemo();
                 }
                 if (this._isDemoUIMaster && !this._demoRequest && SingletonManager.getDemoState(this._singletonId) === 'running') {
                     this._startDemo();
@@ -1796,13 +1664,13 @@ class MeteoCard extends HTMLElement {
 
             const sunAzimuth = parseFloat(sunEntity.attributes?.azimuth) || 0;
             const sunElevation = parseFloat(sunEntity.attributes?.elevation) || 0;
-            const sunPos = this._coordsCache.getCoords(sunAzimuth, sunElevation, this._meteoConfig);
+            const sunPos = MeteoCoordsCalculator.getCoords(sunAzimuth, sunElevation, this._meteoConfig);
 
             const {
                 moonAz,
                 moonEl
             } = this._calculateMoonCoordinates(sunAzimuth, sunElevation, this._hass);
-            const moonPos = this._coordsCache.getCoords(moonAz, moonEl, this._meteoConfig);
+            const moonPos = MeteoCoordsCalculator.getCoords(moonAz, moonEl, this._meteoConfig);
 
             const windSpeed = this._windSpeedKmh(weatherEntity);
             const moonPhaseEntity = this._hass.states[this._moonPhaseEntityId];
@@ -1852,7 +1720,6 @@ class MeteoCard extends HTMLElement {
                 // _sunSVG() depends only on config — regenerate only when the
                 // container is empty (sun rising above horizon after being hidden).
                 if (!sun.firstChild) {
-                    this._lastSunElevationForSVG = sharedState.sunPos.elevation;
                     sun.innerHTML = this._sunSVG();
                 }
             } else if (sun && sun.parentNode && sharedState.sunPos.elevation < 0) {
@@ -1957,7 +1824,9 @@ class MeteoCard extends HTMLElement {
                 set('wind',    `${(sh.windSpeed || 0).toFixed(1)} km/h`);
                 set('sun',     `${(sh.sunPos?.elevation || 0).toFixed(1)}° | ${(sh.sunPos?.azimuth || 0).toFixed(1)}°`);
                 set('moon',    `${(sh.moonPos?.elevation || 0).toFixed(1)}° | ${(sh.moonPos?.azimuth || 0).toFixed(1)}°`);
-                set('phase',   `${this._safe(sh.moonPhase)} | ${(sh.moonPhaseDegrees || 0).toFixed(1)}°`);
+                // textContent assignment — no HTML escaping needed (escaping
+                // here would double-encode entities like '&').
+                set('phase',   `${sh.moonPhase ?? '?'} | ${(sh.moonPhaseDegrees || 0).toFixed(1)}°`);
                 set('clouds',  `BG: ${s.bgCloudCount || 0} FG: ${s.fgCloudCount || 0}`);
                 const _slaves  = SingletonManager.getSlaveCount(this._singletonId);
                 const _masters = SingletonManager.getCardCount(this._singletonId) - _slaves;
@@ -2118,8 +1987,8 @@ class MeteoCard extends HTMLElement {
                 }
             });
 
-            // Apply CSS before swapping DOM: stylesheet is global (no Shadow DOM)
-            // so it takes effect immediately, ensuring layers are styled on first paint.
+            // Apply CSS to the shadow root before swapping the DOM so the new
+            // layers are styled on their very first paint.
             if (this._dynamicStyleSheet && this._dynamicStyleSheet.parentNode) {
                 this._dynamicStyleSheet.parentNode.removeChild(this._dynamicStyleSheet);
             }
