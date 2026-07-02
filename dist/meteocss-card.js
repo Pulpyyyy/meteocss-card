@@ -1767,8 +1767,8 @@ class MeteoCard extends HTMLElement {
 
             if (!weatherEntity || !sunEntity) return null;
 
-            const cond = this._weatherMatrix(weatherEntity.state);
             const isNight = sunEntity.state === 'below_horizon';
+            const cond = this._weatherMatrix(weatherEntity.state, isNight);
 
             const sunAzimuth = parseFloat(sunEntity.attributes?.azimuth) || 0;
             const sunElevation = parseFloat(sunEntity.attributes?.elevation) || 0;
@@ -3227,17 +3227,21 @@ class MeteoCard extends HTMLElement {
     // internal condition keys (defined in MeteoConfig.DEFAULTS.conditions).
     // Uses substring matching so it handles both standard HA states ('rainy',
     // 'partlycloudy') and custom integrations that embed the same keywords.
-    // Falls back to 'sunny' for any unrecognised state.
-    _weatherMatrix(state) {
+    // Falls back to 'sunny' for any unrecognised state ('windy',
+    // 'exceptional', ... — wind already drives the cloud animation speed).
+    _weatherMatrix(state, isNight = false) {
         const s = (state || '').toLowerCase();
         if (s.includes('lightning') || s.includes('storm')) return 'lightning-rainy';
-        if (s.includes('pouring') || s.includes('heavy')) return 'pouring';
-        if (s.includes('rain')) return 'rainy';
+        if (s.includes('pouring') || s.includes('heavy') || s.includes('hail')) return 'pouring';
+        // Snow before rain so 'snowy-rainy' (sleet) renders as snow.
         if (s.includes('snow')) return 'snowy';
-        if (s.includes('partly') || s.includes('broken')) return 'partlycloudy';
+        if (s.includes('rain')) return 'rainy';
+        if (s.includes('partly') || s.includes('broken') || s.includes('windy-variant')) return 'partlycloudy';
         if (s.includes('cloud')) return 'cloudy';
         if (s.includes('fog') || s.includes('mist')) return 'fog';
-        if (s.includes('clear')) return 'clear-night';
+        // A plain 'clear' from custom integrations can occur in daytime and
+        // must not force the night-sky config; use the sun state to decide.
+        if (s.includes('clear')) return (s.includes('night') || isNight) ? 'clear-night' : 'sunny';
         return 'sunny';
     }
 
