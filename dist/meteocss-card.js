@@ -63,7 +63,10 @@ class SingletonManager {
                 registeredCards: new Set(),
                 dataMaster: null,
                 realDataReady: false,
-                realDataTimestamp: null
+                realDataTimestamp: null,
+                // Monotonic revision of actualState — lets slave cards skip
+                // animation frames when nothing has been published since.
+                stateVersion: 0
             };
         }
         return METEO_SINGLETONS[singletonId];
@@ -158,6 +161,7 @@ class SingletonManager {
     static setActualState(singletonId, state) {
         const singleton = this.getSingleton(singletonId);
         singleton.actualState = state;
+        singleton.stateVersion = (singleton.stateVersion || 0) + 1;
     }
 
     static registerCard(singletonId, cardId) {
@@ -920,6 +924,8 @@ class MeteoCard extends HTMLElement {
         this._lastMoonPhaseDegreesForSVG = null;
         this._lastLensMinute = null;
         this._lastDemoUIUpdate = 0;
+        // Last shared-state revision processed by _updateOptimized (slave loop).
+        this._lastSeenStateVersion = -1;
         this._editModeHandler = null;
         // Cached references for demo UI hot-path (avoid querySelector every frame).
         this._demoCacheStats = null;
@@ -1210,6 +1216,23 @@ class MeteoCard extends HTMLElement {
                 return;
             }
 
+            // Skip the full update while the shared state hasn't changed —
+            // without this, every slave re-renders at display refresh rate
+            // even when nothing moved.
+            const singleton = SingletonManager.getSingleton(this._singletonId);
+            if (singleton.stateVersion === this._lastSeenStateVersion) {
+                // A vanished demo master stops publishing new state versions,
+                // so takeover must still be checked on stale frames: isMaster()
+                // promotes this card when the registered master is gone, and
+                // the full update path then starts the demo loop again.
+                if (this._isDemoLayerEnabled && !this._isDemoUIMaster &&
+                    SingletonManager.isMaster(this._singletonId, this._cardId)) {
+                    this._update();
+                }
+                return;
+            }
+            this._lastSeenStateVersion = singleton.stateVersion;
+
             this._update();
         } catch (e) {
             console.error('[MeteoCard] _updateOptimized:', e);
@@ -1239,6 +1262,7 @@ class MeteoCard extends HTMLElement {
                 this._lastNight = null;
                 this._lastDemoState = null;
                 this._previousStates = {};
+                this._lastSeenStateVersion = -1;
                 // Reset demo master flag so _update() re-elects and restarts the demo
                 // (new singleton has demoState='stopped', so the flag must be cleared
                 //  to enter the election branch that calls SingletonManager.startDemo).
