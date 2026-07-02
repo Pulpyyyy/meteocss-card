@@ -2621,6 +2621,7 @@ class MeteoCard extends HTMLElement {
                     this._shadowWasActive = false;
                     this._lastShadowAzimuth = null;
                     this._lastShadowElevation = null;
+                    this._lastShadowIntensity = null;
                 }
                 return;
             }
@@ -2633,16 +2634,17 @@ class MeteoCard extends HTMLElement {
                 this._lastShadowElevation = null;
             }
 
-            // Skip render if position hasn't changed enough (keep last frame)
+            // Skip render while the light hasn't moved appreciably and its
+            // intensity (driven by the moon phase) hasn't changed: a static
+            // light keeps the last frame instead of re-running the ray-march.
             const azDiff = Math.abs((lightPos.azimuth ?? 0) - (this._lastShadowAzimuth ?? -999));
             const elDiff = Math.abs((lightPos.elevation ?? 0) - (this._lastShadowElevation ?? -999));
-            const now = Date.now();
-            const elapsed = now - (this._lastShadowRender ?? 0);
-            if (this._shadowWasActive && azDiff < 0.5 && elDiff < 0.5 && elapsed < 250) return;
+            const intDiff = Math.abs(lightIntensity - (this._lastShadowIntensity ?? -999));
+            if (this._shadowWasActive && azDiff < 0.5 && elDiff < 0.5 && intDiff < 0.01) return;
 
             this._lastShadowAzimuth = lightPos.azimuth;
             this._lastShadowElevation = lightPos.elevation;
-            this._lastShadowRender = now;
+            this._lastShadowIntensity = lightIntensity;
             this._shadowWasActive = true;
 
             const u = this._shadowUniforms;
@@ -2733,7 +2735,7 @@ class MeteoCard extends HTMLElement {
         this._shadowWasActive = false;
         this._lastShadowAzimuth = null;
         this._lastShadowElevation = null;
-        this._lastShadowRender = null;
+        this._lastShadowIntensity = null;
         this._shadowIsDemo = null;
         this._shadowTexW = null;
         this._shadowTexH = null;
