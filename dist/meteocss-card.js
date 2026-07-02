@@ -1804,7 +1804,7 @@ class MeteoCard extends HTMLElement {
             } = this._calculateMoonCoordinates(sunAzimuth, sunElevation, this._hass);
             const moonPos = this._coordsCache.getCoords(moonAz, moonEl, this._meteoConfig);
 
-            const windSpeed = Math.max(0, parseFloat(weatherEntity.attributes?.wind_speed) || 0);
+            const windSpeed = this._windSpeedKmh(weatherEntity);
             const moonPhaseEntity = this._hass.states[this._moonPhaseEntityId];
             const moonDegreesEntity = this._hass.states[this._moonDegreesEntityId];
 
@@ -3245,6 +3245,24 @@ class MeteoCard extends HTMLElement {
         const h = Math.floor(hour);
         const m = Math.floor((hour % 1) * 60);
         return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:00`;
+    }
+
+    // Normalises the weather entity's wind speed to km/h. The cloud animation
+    // speed (and the demo UI display) assume km/h, but HA reports wind_speed
+    // in whatever unit the entity declares via wind_speed_unit.
+    _windSpeedKmh(weatherEntity) {
+        const raw = parseFloat(weatherEntity?.attributes?.wind_speed);
+        if (isNaN(raw)) return 0;
+        const unit = (weatherEntity.attributes?.wind_speed_unit || 'km/h').toLowerCase().trim();
+        // Official HA wind speed units; unknown units are assumed km/h.
+        const factors = {
+            'km/h': 1,
+            'mph': 1.60934,
+            'm/s': 3.6,
+            'kn': 1.852,
+            'ft/s': 1.09728
+        };
+        return Math.max(0, raw * (factors[unit] ?? 1));
     }
 
     // Maps a raw Home Assistant weather state string to one of the card's
