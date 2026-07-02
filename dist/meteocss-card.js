@@ -2298,6 +2298,25 @@ class MeteoCard extends HTMLElement {
             return;
         }
 
+        // A GPU reset (mobile waking from sleep, driver crash) destroys every
+        // GL resource; without these handlers the shadow layer stays blank
+        // until the next full re-render.
+        this._shadowCanvasEl = canvas;
+        this._onShadowContextLost = (e) => {
+            // preventDefault is required for the browser to attempt a restore.
+            e.preventDefault();
+            this._shadowReady = false;
+        };
+        this._onShadowContextRestored = () => {
+            // The browser reset the context itself — drop the stale handle so
+            // _cleanupShadow doesn't loseContext() the freshly restored one,
+            // then rebuild shaders, buffers and textures from scratch.
+            this._shadowGl = null;
+            this._initShadowEngine();
+        };
+        canvas.addEventListener('webglcontextlost', this._onShadowContextLost);
+        canvas.addEventListener('webglcontextrestored', this._onShadowContextRestored);
+
         const vs = `
             attribute vec2 p;
             attribute vec2 t;
@@ -2638,6 +2657,13 @@ class MeteoCard extends HTMLElement {
     }
 
     _cleanupShadow() {
+        if (this._shadowCanvasEl) {
+            this._shadowCanvasEl.removeEventListener('webglcontextlost', this._onShadowContextLost);
+            this._shadowCanvasEl.removeEventListener('webglcontextrestored', this._onShadowContextRestored);
+            this._shadowCanvasEl = null;
+            this._onShadowContextLost = null;
+            this._onShadowContextRestored = null;
+        }
         if (this._shadowGl) {
             const ext = this._shadowGl.getExtension('WEBGL_lose_context');
             if (ext) ext.loseContext();
