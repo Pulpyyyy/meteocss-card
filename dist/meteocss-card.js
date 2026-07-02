@@ -1896,7 +1896,7 @@ class MeteoCard extends HTMLElement {
 
             const sky = this._getCachedEl('skyBg', '.sky-bg');
             if (sky) {
-                const conf = this._meteoConfig.get(`conditions.${sharedState.condition}`);
+                const conf = this._meteoConfig.get(`conditions.${sharedState.condition}`) || this._meteoConfig.get('conditions.default');
                 sky.style.background = this._computeSkyBackground(
                     sharedState.sunPos, sharedState.moonPos, sharedState.isNight, sharedState.rising, conf
                 );
@@ -2249,7 +2249,7 @@ class MeteoCard extends HTMLElement {
 
             const sky = this._getCachedEl('skyBg', '.sky-bg');
             if (sky) {
-                const conf = this._meteoConfig.get(`conditions.${condition}`);
+                const conf = this._meteoConfig.get(`conditions.${condition}`) || this._meteoConfig.get('conditions.default');
                 sky.style.background = this._computeSkyBackground(sunPos, moonPos, isNight, rising, conf);
             }
 
