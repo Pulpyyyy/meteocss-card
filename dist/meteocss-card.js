@@ -1589,6 +1589,17 @@ class MeteoCard extends HTMLElement {
             if (elapsedTime >= demoDuration) {
                 SingletonManager.stopDemo(this._singletonId);
                 this._demoRequest = undefined;
+                // Restore real data immediately (same as the STOP button),
+                // otherwise the card stays frozen on the last demo frame
+                // until the next weather/sun state change.
+                if (this._hass) {
+                    this._validateEntitiesFromHass(this._hass);
+                    const realData = this._realData();
+                    if (realData) {
+                        SingletonManager.setActualState(this._singletonId, realData);
+                    }
+                }
+                this._update();
                 return;
             }
 
