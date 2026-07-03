@@ -815,6 +815,41 @@ class SharedAnimationLoop {
 }
 
 /**
+ * Single shared 2s poller used as a fallback to detect Lovelace edit-mode
+ * changes when the ll-edit-mode-changed event does not reach the cards
+ * (nested picture-elements, HA version differences). One interval serves
+ * every card instance instead of one permanent timer per card; it stops
+ * entirely when the last card unregisters.
+ */
+class SharedEditModePoller {
+    static callbacks = new Set();
+    static intervalId = null;
+
+    static register(cb) {
+        SharedEditModePoller.callbacks.add(cb);
+        if (SharedEditModePoller.intervalId === null) {
+            SharedEditModePoller.intervalId = setInterval(() => {
+                for (const callback of SharedEditModePoller.callbacks) {
+                    try {
+                        callback();
+                    } catch (e) {
+                        console.error('[SharedEditModePoller] callback error:', e);
+                    }
+                }
+            }, 2000);
+        }
+    }
+
+    static unregister(cb) {
+        SharedEditModePoller.callbacks.delete(cb);
+        if (SharedEditModePoller.callbacks.size === 0 && SharedEditModePoller.intervalId !== null) {
+            clearInterval(SharedEditModePoller.intervalId);
+            SharedEditModePoller.intervalId = null;
+        }
+    }
+}
+
+/**
  * Main custom element (<meteo-card>) registered with the Home Assistant Lovelace
  * dashboard. Responsible for the full lifecycle of the weather card:
  *  - setConfig(): parses YAML config, elects demo/data master via SingletonManager,
@@ -1242,10 +1277,17 @@ class MeteoCard extends HTMLElement {
                     console.error('[MeteoCard] Edit mode check error:', e);
                 }
             };
+            // Re-entrant connectedCallback: drop any previous handler first so
+            // neither the window listener nor the shared poller accumulates.
+            if (this._editModeHandler) {
+                window.removeEventListener('ll-edit-mode-changed', this._editModeHandler);
+                SharedEditModePoller.unregister(this._editModeHandler);
+            }
             this._editModeHandler = checkEditMode;
             window.addEventListener('ll-edit-mode-changed', checkEditMode);
-            // Slow fallback for environments where the event is not fired
-            this._editCheckInterval = setInterval(checkEditMode, 2000);
+            // Slow fallback for environments where the event does not reach
+            // the card — one shared interval for all cards.
+            SharedEditModePoller.register(checkEditMode);
 
             if (this._isDemoUIMaster && !this._demoRequest && SingletonManager.getDemoState(this._singletonId) === 'running') {
                 this._startDemo();
@@ -1320,11 +1362,8 @@ class MeteoCard extends HTMLElement {
 
             if (this._editModeHandler) {
                 window.removeEventListener('ll-edit-mode-changed', this._editModeHandler);
+                SharedEditModePoller.unregister(this._editModeHandler);
                 this._editModeHandler = null;
-            }
-            if (this._editCheckInterval) {
-                clearInterval(this._editCheckInterval);
-                this._editCheckInterval = null;
             }
 
             if (this._demoRequest) {
