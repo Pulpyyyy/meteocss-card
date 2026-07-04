@@ -593,7 +593,11 @@ class MeteoConfig {
             bias: 0.003,
             step: 0.002,
             ambient: 0.2,
-            intensity: 0.7
+            intensity: 0.7,
+            blur: 0,
+            depth_exp: 1.0,
+            depth_gain: 1.15,
+            normal_strength: 0.45
         },
         colors: {
             night: {
@@ -2366,8 +2370,18 @@ class MeteoCard extends HTMLElement {
             }
         `;
 
-        // Overlay shader (no base image) — unit 0 = depthmap
-        const fsOverlayDemo = `
+        // Overlay shader (no base image) — unit 0 = depthmap.
+        // One template generates both quality tiers: the previous approach
+        // (String.replace on the demo source) failed silently when the
+        // searched text changed, leaving both programs identical.
+        // depth_exp defaults to 1.0, where pow() is a no-op — the call is
+        // baked out of the shader entirely in that case (it would otherwise
+        // run once per texture tap, up to ~1000 times per pixel).
+        const shadowCfgInit = this._meteoConfig.get('shadow') || {};
+        const depthExpr = (shadowCfgInit.depth_exp ?? 1.0) !== 1.0
+            ? 'pow(max(h, 1e-6), uDepthExp) * uDepthGain'
+            : 'max(h, 1e-6) * uDepthGain';
+        const makeFragmentSource = (dirCount, stepCount) => `
             precision highp float;
             varying vec2 v;
             uniform sampler2D uDepth;
@@ -2378,16 +2392,18 @@ class MeteoCard extends HTMLElement {
             uniform vec2 uTexel;
             uniform float uBias;
             uniform float uStepSize;
+            uniform float uSlope;
             uniform int uShadowEnabled;
             uniform float uDepthExp;
             uniform float uDepthGain;
             uniform float uNormalStrength;
             uniform float uIntensity;
+            float shapeDepth(float h){
+                return ${depthExpr};
+            }
             float getDepth(vec2 uv){
                 vec3 d = texture2D(uDepth, uv).rgb;
-                float h = dot(d, vec3(0.3, 0.59, 0.11));
-                h = pow(max(h, 1e-6), uDepthExp) * uDepthGain;
-                return h;
+                return shapeDepth(dot(d, vec3(0.3, 0.59, 0.11)));
             }
             vec3 normalFromDepth(vec2 uv){
                 float hL = getDepth(uv - vec2(uTexel.x, 0.0));
@@ -2402,22 +2418,21 @@ class MeteoCard extends HTMLElement {
                 vec4 depthSample = texture2D(uDepth, v);
                 float mask = depthSample.a;
                 if(mask < 0.01) discard;
-                float hBase = dot(depthSample.rgb, vec3(0.3, 0.59, 0.11));
-                hBase = pow(max(hBase, 1e-6), uDepthExp) * uDepthGain;
+                float hBase = shapeDepth(dot(depthSample.rgb, vec3(0.3, 0.59, 0.11)));
                 float acc = 0.0;
-                const float samples = 8.0;
+                const float samples = ${dirCount}.0;
                 if(uShadowEnabled == 1){
                     float seed = fract(sin(dot(v, vec2(12.9898, 78.233))) * 43758.5453);
-                    for(float i = 0.0; i < 8.0; i++){
-                        float ang = (i + seed) * 0.785;
+                    for(float i = 0.0; i < ${dirCount}.0; i++){
+                        float ang = (i + seed) * ${(2 * Math.PI / dirCount).toFixed(4)};
                         float sh = 1.0;
-                        for(float j = 1.0; j < 16.0; j++){
+                        for(float j = 1.0; j < ${stepCount}.0; j++){
                             float dist = j * uStepSize;
                             float soft = dist * 0.22;
                             vec2 jitter = vec2(cos(ang), sin(ang)) * soft;
                             vec2 p = v + (uLight + jitter) * dist;
                             if(p.x > 0.0 && p.x < 1.0 && p.y > 0.0 && p.y < 1.0){
-                                if(getDepth(p) > (hBase + dist * 0.65 + uBias)){
+                                if(getDepth(p) > (hBase + dist * uSlope + uBias)){
                                     sh = 0.5;
                                     break;
                                 }
@@ -2436,11 +2451,8 @@ class MeteoCard extends HTMLElement {
                 gl_FragColor = vec4(0.0, 0.0, 0.0, shadowOpacity);
             }
         `;
-        const fsOverlayNormal = fsOverlayDemo
-            .replace('const float samples = 8.0;', 'const float samples = 32.0;')
-            .replace('i < 8.0;', 'i < 32.0;')
-            .replace('j < 16.0;', 'j < 30.0;')
-            .replace('* 0.785;', '* 0.196;');
+        const fsOverlayDemo = makeFragmentSource(8, 16);
+        const fsOverlayNormal = makeFragmentSource(32, 30);
 
         try {
             const makeShader = (type, src) => {
@@ -2498,6 +2510,7 @@ class MeteoCard extends HTMLElement {
                     uTexel:          gl.getUniformLocation(p, 'uTexel'),
                     uBias:           gl.getUniformLocation(p, 'uBias'),
                     uStepSize:       gl.getUniformLocation(p, 'uStepSize'),
+                    uSlope:          gl.getUniformLocation(p, 'uSlope'),
                     uShadowEnabled:  gl.getUniformLocation(p, 'uShadowEnabled'),
                     uDepthExp:       gl.getUniformLocation(p, 'uDepthExp'),
                     uDepthGain:      gl.getUniformLocation(p, 'uDepthGain'),
@@ -2622,13 +2635,24 @@ class MeteoCard extends HTMLElement {
 
             const u = this._shadowUniforms;
             const shadowCfg = this._meteoConfig.get('shadow') || {};
-            const bias      = shadowCfg.bias      ?? 0.003;
-            const step      = shadowCfg.step      ?? 0.002;
-            const ambient   = shadowCfg.ambient   ?? 0.2;
-            const intensity = shadowCfg.intensity ?? 0.7;
+            const bias           = shadowCfg.bias            ?? 0.003;
+            const step           = shadowCfg.step            ?? 0.002;
+            const ambient        = shadowCfg.ambient         ?? 0.2;
+            const intensity      = shadowCfg.intensity       ?? 0.7;
+            const depthExp       = shadowCfg.depth_exp       ?? 1.0;
+            const depthGain      = shadowCfg.depth_gain      ?? 1.15;
+            const normalStrength = shadowCfg.normal_strength ?? 0.45;
 
             const altRad = lightPos.elevation * Math.PI / 180;
             const len = (90 - lightPos.elevation) / 60;
+            // Light rays climb at tan(elevation) per horizontal unit: low sun
+            // rays stay low and reach far occluders (long shadows), high sun
+            // rays climb steeply (short shadows). |uLight| = len scales the
+            // march horizontally, so the climb per unit dist is
+            // len * tan(elevation). Clamped/floored for stability when the
+            // light grazes the horizon.
+            const slopeElev = Math.max(2, Math.min(88, lightPos.elevation)) * Math.PI / 180;
+            const slope = Math.max(0.05, len * Math.tan(slopeElev));
 
             // Derive 2D shadow direction from screen position so it matches the
             // sun/moon layer (which already includes orbit/house_angle/tilt transforms).
@@ -2648,10 +2672,11 @@ class MeteoCard extends HTMLElement {
             );
             gl.uniform1f(u.uBias, bias);
             gl.uniform1f(u.uStepSize, step);
+            gl.uniform1f(u.uSlope, slope);
             gl.uniform1i(u.uShadowEnabled, 1);
-            gl.uniform1f(u.uDepthExp, 1.0);
-            gl.uniform1f(u.uDepthGain, 1.15);
-            gl.uniform1f(u.uNormalStrength, 0.45);
+            gl.uniform1f(u.uDepthExp, depthExp);
+            gl.uniform1f(u.uDepthGain, depthGain);
+            gl.uniform1f(u.uNormalStrength, normalStrength);
             gl.uniform1f(u.uLightIntensity, lightIntensity);
             gl.uniform1f(u.uAmbient, ambient);
             gl.uniform1f(u.uIntensity, intensity);

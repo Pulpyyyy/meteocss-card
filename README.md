@@ -468,6 +468,9 @@ elements:
 | `ambient` | `0.2` | Ambient light floor — prevents fully black shadows (0 = pitch black, 0.4 = very soft) |
 | `intensity` | `0.7` | Global shadow strength multiplier — increase for stronger shadows, decrease for subtler ones |
 | `blur` | `0` | CSS `blur()` in px applied to the shadow canvas — softens shadow edges |
+| `depth_exp` | `1.0` | Gamma applied to the depth map heights — >1 exaggerates tall elements, <1 flattens the relief |
+| `depth_gain` | `1.15` | Multiplier applied to the depth map heights |
+| `normal_strength` | `0.45` | Amount of slope-based relighting mixed in (0 = cast shadows only, 1 = full relief shading) |
 
 ---
 
@@ -730,6 +733,9 @@ shadow:
   ambient: 0.2           # Ambient light floor — 0 = full black, 0.2 = soft shadows
   intensity: 0.7         # Global shadow strength (0 = invisible, 1 = maximum contrast)
   blur: 0                # CSS blur in px applied to shadow canvas (softens edges)
+  depth_exp: 1.0         # Gamma on depth heights (>1 exaggerates relief, <1 flattens)
+  depth_gain: 1.15       # Multiplier on depth heights
+  normal_strength: 0.45  # Slope-based relighting amount (0 = shadows only)
 
 # --- Display Layers ---
 # Order defines the Z-Index (rendering stack)
