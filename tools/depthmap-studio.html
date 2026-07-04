@@ -37,7 +37,7 @@
 </head>
 <body>
 <h1>🌤️ MeteoCSS <span>Depth Map Studio</span></h1>
-<p class="hint">Drop the greyscale depth map from Depth Anything (with the sky erased to transparency), preview the card's shadow with ground compensation, then copy the YAML or export a corrected PNG. Everything runs locally in your browser — nothing is uploaded.</p>
+<p class="hint">Drop the greyscale depth map from Depth Anything (with the sky erased to transparency), preview the card's shadow with ground compensation, then copy the YAML or export a corrected PNG. For best results add a ground mask (white = ground, e.g. a quick select-by-color in GIMP): the ground surface is then interpolated exactly instead of estimated. Everything runs locally in your browser — nothing is uploaded.</p>
 
 <div class="layout">
     <div class="side">
@@ -45,6 +45,7 @@
         <div class="files">
             <label class="filebtn">Load depth map… <input type="file" id="fileDepth" accept="image/*"></label>
             <label class="filebtn secondary">Scene photo (optional)… <input type="file" id="fileScene" accept="image/*"></label>
+            <label class="filebtn secondary">Ground mask (optional)… <input type="file" id="fileMask" accept="image/*"></label>
         </div>
         <div class="sep"></div>
         <div class="row">
@@ -155,6 +156,95 @@ function applyGroundCompensation(pixels, width, height, horizonFrac, strength = 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Mask-based compensation: when a ground mask is provided (white = ground),
+// the ground SURFACE is interpolated exactly from the masked pixels (per-row
+// linear interpolation + vertical fill + smoothing) instead of estimated.
+// Masked ground drops to exactly 0; objects keep their height above their
+// LOCAL ground. Export the result — the card then needs no compensation.
+// ─────────────────────────────────────────────────────────────────────────────
+function maskToArray(img, w, h) {
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(img, 0, 0, w, h);
+    const d = ctx.getImageData(0, 0, w, h).data;
+    const m = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) m[i] = d[i * 4 + 3] >= 25 && d[i * 4] > 127 ? 1 : 0;
+    return m;
+}
+
+function applyMaskCompensation(pixels, w, h, mask) {
+    const lum = new Float32Array(w * h);
+    const opaque = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+        const p = i * 4;
+        lum[i] = 0.3 * pixels[p] + 0.59 * pixels[p + 1] + 0.11 * pixels[p + 2];
+        opaque[i] = pixels[p + 3] >= 25 ? 1 : 0;
+    }
+    // Ground surface: per-row linear interpolation between masked pixels.
+    const surface = new Float32Array(w * h).fill(NaN);
+    for (let y = 0; y < h; y++) {
+        const row = y * w;
+        let lastX = -1, lastV = NaN;
+        for (let x = 0; x < w; x++) {
+            if (!mask[row + x] || !opaque[row + x]) continue;
+            const v = lum[row + x];
+            if (lastX < 0) for (let k = 0; k <= x; k++) surface[row + k] = v;
+            else for (let k = lastX + 1; k <= x; k++) surface[row + k] = lastV + (v - lastV) * (k - lastX) / (x - lastX);
+            lastX = x; lastV = v;
+        }
+        if (lastX >= 0) for (let k = lastX + 1; k < w; k++) surface[row + k] = lastV;
+    }
+    // Vertical fill for rows without any ground.
+    for (let x = 0; x < w; x++) {
+        let carry = NaN;
+        for (let y = h - 1; y >= 0; y--) {
+            const i = y * w + x;
+            if (!Number.isNaN(surface[i])) carry = surface[i];
+            else if (!Number.isNaN(carry)) surface[i] = carry;
+        }
+    }
+    for (let i = 0; i < w * h; i++) if (Number.isNaN(surface[i])) surface[i] = 0;
+    // Smooth the surface (two separable 5-tap box passes).
+    for (let pass = 0; pass < 2; pass++) {
+        const tmp = new Float32Array(w * h);
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                let sum = 0, n = 0;
+                for (let k = -2; k <= 2; k++) {
+                    const xx = x + k;
+                    if (xx >= 0 && xx < w) { sum += surface[y * w + xx]; n++; }
+                }
+                tmp[y * w + x] = sum / n;
+            }
+        }
+        for (let x = 0; x < w; x++) {
+            for (let y = 0; y < h; y++) {
+                let sum = 0, n = 0;
+                for (let k = -2; k <= 2; k++) {
+                    const yy = y + k;
+                    if (yy >= 0 && yy < h) { sum += tmp[yy * w + x]; n++; }
+                }
+                surface[y * w + x] = sum / n;
+            }
+        }
+    }
+    // Heights: masked ground -> exactly 0, objects -> height above local ground.
+    for (let i = 0; i < w * h; i++) {
+        if (!opaque[i]) continue;
+        const p = i * 4;
+        let hv;
+        if (mask[i]) hv = 0;
+        else {
+            hv = Math.max(0, Math.min(255, Math.round(lum[i] - surface[i])));
+            if (hv < 10) hv = 0;
+        }
+        pixels[p] = pixels[p + 1] = pixels[p + 2] = hv;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Shadow preview — a faithful JS port of the card's ray-march (demo tier:
 // 8 jittered directions, 16 steps, slope = len·tan(elevation), 0.5 occlusion,
 // ambient 0.2, bias 0.003). Normal-based relighting is omitted here.
@@ -206,7 +296,7 @@ function renderShadow(height01, mask, w, h, opts) {
 // UI wiring
 // ─────────────────────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
-const state = { depthImg: null, sceneImg: null, raw: null, w: 0, h: 0 };
+const state = { depthImg: null, sceneImg: null, maskImg: null, raw: null, w: 0, h: 0 };
 // March resolution: the shadow is computed at this width then up-scaled onto
 // the full-resolution preview (higher = sharper shadows, slower sliders).
 const PREVIEW_W = 520;
@@ -262,7 +352,8 @@ function render() {
     const { w, h } = state;
     // Height map: copy of the raw depth, optionally compensated.
     const heightData = new ImageData(new Uint8ClampedArray(state.raw.data), w, h);
-    if (compStrength() > 0) applyGroundCompensation(heightData.data, w, h, currentHorizon(), compStrength());
+    if (state.maskImg) applyMaskCompensation(heightData.data, w, h, maskToArray(state.maskImg, w, h));
+    else if (compStrength() > 0) applyGroundCompensation(heightData.data, w, h, currentHorizon(), compStrength());
     paintImageData($('cvHeight'), heightData, w, h);
 
     // Shadow march on the (possibly compensated) heights.
@@ -308,7 +399,9 @@ function render() {
     octx.putImageData(od, 0, 0);
     ctx.drawImage(ov, 0, 0, cv.width, cv.height);
     drawSunMarker(ctx, cv.width, cv.height);
-    $('download').disabled = compStrength() <= 0;
+    $('download').disabled = !(state.maskImg || compStrength() > 0);
+    $('comp').disabled = !!state.maskImg;
+    $('autoHorizon').disabled = !!state.maskImg;
 }
 
 // Discreet sun marker. The card models the sun as a DIRECTIONAL light
@@ -356,6 +449,11 @@ function drawSunMarker(ctx, w, h) {
 
 function updateYaml() {
     const lines = ['shadow:', '  depthmap: /local/my-depthmap.png'];
+    if (state.maskImg) {
+        $('yaml').textContent = ['shadow:', '  depthmap: /local/my-heightmap.png  # the exported PNG below',
+            '  ground_compensation: false  # already baked into the export'].join('\n');
+        return;
+    }
     const strength = compStrength();
     if (strength > 0) {
         lines.push(strength >= 1 ? '  ground_compensation: true' : `  ground_compensation: ${strength.toFixed(2)}`);
@@ -378,6 +476,7 @@ function setDepthImage(img) {
 
 $('fileDepth').addEventListener('change', (e) => e.target.files[0] && loadImageFile(e.target.files[0], setDepthImage));
 $('fileScene').addEventListener('change', (e) => e.target.files[0] && loadImageFile(e.target.files[0], (img) => { state.sceneImg = img; scheduleRender(); }));
+$('fileMask').addEventListener('change', (e) => e.target.files[0] && loadImageFile(e.target.files[0], (img) => { state.maskImg = img; scheduleRender(); }));
 
 for (const id of ['comp', 'autoHorizon', 'horizon', 'elev', 'dir', 'intensity', 'gain']) {
     $(id).addEventListener('input', scheduleRender);
@@ -404,7 +503,8 @@ $('download').addEventListener('click', () => {
     const ctx = cv.getContext('2d', { willReadFrequently: true });
     ctx.drawImage(img, 0, 0);
     const full = ctx.getImageData(0, 0, img.width, img.height);
-    applyGroundCompensation(full.data, img.width, img.height, currentHorizon(), compStrength());
+    if (state.maskImg) applyMaskCompensation(full.data, img.width, img.height, maskToArray(state.maskImg, img.width, img.height));
+    else applyGroundCompensation(full.data, img.width, img.height, currentHorizon(), compStrength());
     ctx.putImageData(full, 0, 0);
     const a = document.createElement('a');
     a.download = 'depthmap-compensated.png';
