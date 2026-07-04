@@ -202,7 +202,8 @@ function applyMaskCompensation(pixels, w, h, mask) {
         }
         if (lastX >= 0) for (let k = lastX + 1; k < w; k++) surface[row + k] = lastV;
     }
-    // Vertical fill for rows without any ground.
+    // Vertical fill, BOTH directions: rows below the lowest masked ground
+    // (the bottom tip of the scene) must inherit from above, not default to 0.
     for (let x = 0; x < w; x++) {
         let carry = NaN;
         for (let y = h - 1; y >= 0; y--) {
@@ -210,15 +211,23 @@ function applyMaskCompensation(pixels, w, h, mask) {
             if (!Number.isNaN(surface[i])) carry = surface[i];
             else if (!Number.isNaN(carry)) surface[i] = carry;
         }
+        carry = NaN;
+        for (let y = 0; y < h; y++) {
+            const i = y * w + x;
+            if (!Number.isNaN(surface[i])) carry = surface[i];
+            else if (!Number.isNaN(carry)) surface[i] = carry;
+        }
     }
     for (let i = 0; i < w * h; i++) if (Number.isNaN(surface[i])) surface[i] = 0;
-    // Smooth the surface (two separable 5-tap box passes).
-    for (let pass = 0; pass < 2; pass++) {
+    // Smooth the surface. The per-row interpolation creates row-to-row jumps
+    // under wide objects (horizontal banding) — the vertical kernel is
+    // therefore much larger than the horizontal one.
+    for (let pass = 0; pass < 3; pass++) {
         const tmp = new Float32Array(w * h);
         for (let y = 0; y < h; y++) {
             for (let x = 0; x < w; x++) {
                 let sum = 0, n = 0;
-                for (let k = -2; k <= 2; k++) {
+                for (let k = -3; k <= 3; k++) {
                     const xx = x + k;
                     if (xx >= 0 && xx < w) { sum += surface[y * w + xx]; n++; }
                 }
@@ -228,7 +237,7 @@ function applyMaskCompensation(pixels, w, h, mask) {
         for (let x = 0; x < w; x++) {
             for (let y = 0; y < h; y++) {
                 let sum = 0, n = 0;
-                for (let k = -2; k <= 2; k++) {
+                for (let k = -8; k <= 8; k++) {
                     const yy = y + k;
                     if (yy >= 0 && yy < h) { sum += tmp[yy * w + x]; n++; }
                 }
