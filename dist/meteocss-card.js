@@ -3245,7 +3245,11 @@ class MeteoCard extends HTMLElement {
 
     _injectStyles() {
         const cssText = `
-            :host { display: block; isolation: isolate; position: relative; width: 100%; height: 100%; overflow: hidden; }
+            /* min-height: the editor preview pane gives the card no height,
+               so height:100% collapsed to 0px and the preview looked blank.
+               180px matches the 3-row minimum declared in getGridOptions;
+               an inline style on the element still overrides it if needed. */
+            :host { display: block; isolation: isolate; position: relative; width: 100%; height: 100%; min-height: 180px; overflow: hidden; }
             ha-card { position: absolute !important; inset: 0 !important; width: 100% !important; height: 100% !important; overflow: hidden !important; background: transparent !important; border: none !important; border-radius: 0 !important; padding: 0 !important; display: block !important; isolation: isolate; }
             .layer-container { pointer-events: none; position: absolute; inset: 0; overflow: hidden; }
             .sun-wrapper, .moon-container { position: absolute; left: 0; top: 0; pointer-events: none; width: 900px; height: 900px; will-change: transform; transition: transform 0.5s linear; }
