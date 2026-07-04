@@ -261,6 +261,34 @@ function applyMaskCompensation(pixels, w, h, mask) {
         }
         pixels[p] = pixels[p + 1] = pixels[p + 2] = hv;
     }
+    // Selective smoothing of object heights: the source depth map carries
+    // quantization waves on smooth slopes (roofs). Averaging only neighbors
+    // of similar height flattens the waves while keeping real edges crisp.
+    const RANGE = 14, RADIUS = 8;
+    for (let pass = 0; pass < 2; pass++) {
+        for (const dir of ['h', 'v']) {
+            const src = new Float32Array(w * h);
+            for (let i = 0; i < w * h; i++) src[i] = pixels[i * 4];
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const i = y * w + x;
+                    if (!opaque[i]) continue;
+                    const c = src[i];
+                    let sum = 0, n = 0;
+                    for (let k = -RADIUS; k <= RADIUS; k++) {
+                        const xx = dir === 'h' ? x + k : x;
+                        const yy = dir === 'v' ? y + k : y;
+                        if (xx < 0 || xx >= w || yy < 0 || yy >= h) continue;
+                        const j = yy * w + xx;
+                        if (!opaque[j] || Math.abs(src[j] - c) > RANGE) continue;
+                        sum += src[j]; n++;
+                    }
+                    const hv = Math.round(sum / n);
+                    pixels[i * 4] = pixels[i * 4 + 1] = pixels[i * 4 + 2] = hv;
+                }
+            }
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
