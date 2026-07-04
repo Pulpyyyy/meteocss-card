@@ -14,7 +14,11 @@ on:
         required: false
 
 jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml
+
   auto-tag:
+    needs: tests
     uses: ./.github/workflows/auto-tag.yml
     permissions:
       contents: write
