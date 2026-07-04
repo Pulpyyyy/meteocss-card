@@ -44,4 +44,5 @@ ELECTRON_RUN_AS_NODE=1 "C:/Users/<user>/AppData/Local/Programs/Microsoft VS Code
 | `test-coords-calculator.js` | Projection orbitale : ellipse, house_angle, invert_azimuth, position fixe (rx=ry=0), clamping |
 | `test-double-load.js` | Double chargement du script (cache) : pas de crash, pas de doublon dans le picker |
 | `test-shadow-shader.js` | Construction des shaders d'ombre : template unique pour les deux niveaux de qualité, pow() supprimé au défaut, réglages depth/relight exposés, pente physique tan(élévation) |
+| `test-ground-compensation.js` | Compensation de sol : sol plat aplati à ~0, hauteur des murs croissante, option horizon, plomberie canvas |
 | `test-layer-placement.js` | Pluie/neige/éclairs en foreground uniquement, répartition du brouillard et des nuages par ratio, contrat z-index des couches |

@@ -391,6 +391,8 @@ Some zones (sky, distant background, UI elements) should never produce shadows. 
 
 > **Tip**: Erasing the sky zone is essential — without it, the depth model often treats the sky as a tall surface and generates incorrect shadows across the entire top of the card.
 
+> **Ground looking wrong?** Depth models measure *distance to the camera*, not *height above ground* — so the ground in the foreground is bright and can self-shadow like a wall. Instead of erasing all of it by hand, enable `shadow.ground_compensation: true`: the card estimates the ground-plane ramp of your image and subtracts it, so flat ground stops casting shadows while buildings and trees keep theirs. If the automatic estimate misbehaves, pin the horizon line manually with `shadow.horizon: 0.4` (0 = top of the image, 1 = bottom).
+
 #### Step 3 — Host the Depth Map and Reference It
 
 Place the PNG in your Home Assistant `www/` folder or any accessible URL, then reference it in the card config:
@@ -471,6 +473,8 @@ elements:
 | `depth_exp` | `1.0` | Gamma applied to the depth map heights — >1 exaggerates tall elements, <1 flattens the relief |
 | `depth_gain` | `1.15` | Multiplier applied to the depth map heights |
 | `normal_strength` | `0.45` | Amount of slope-based relighting mixed in (0 = cast shadows only, 1 = full relief shading) |
+| `ground_compensation` | `false` | Convert camera-proximity (ML depth) into height above ground by subtracting the estimated ground ramp — stops flat ground from self-shadowing |
+| `horizon` | `null` | Optional horizon line (0 = top, 1 = bottom of the image) used by `ground_compensation` when the automatic estimate gets it wrong |
 
 ---
 
@@ -736,6 +740,8 @@ shadow:
   depth_exp: 1.0         # Gamma on depth heights (>1 exaggerates relief, <1 flattens)
   depth_gain: 1.15       # Multiplier on depth heights
   normal_strength: 0.45  # Slope-based relighting amount (0 = shadows only)
+  ground_compensation: false  # Subtract the ground-plane ramp from the ML depth map
+  # horizon: 0.4         # Optional horizon line for ground_compensation (0=top, 1=bottom)
 
 # --- Display Layers ---
 # Order defines the Z-Index (rendering stack)

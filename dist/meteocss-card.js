@@ -597,7 +597,9 @@ class MeteoConfig {
             blur: 0,
             depth_exp: 1.0,
             depth_gain: 1.15,
-            normal_strength: 0.45
+            normal_strength: 0.45,
+            ground_compensation: false,
+            horizon: null
         },
         colors: {
             night: {
@@ -2325,6 +2327,94 @@ class MeteoCard extends HTMLElement {
         }
     }
 
+    // Estimates the ground-plane depth ramp of an ML depth map. On a roughly
+    // horizontal photo, flat ground forms a predictable bright-to-dark ramp
+    // from the bottom of the image toward the horizon: per row, the 10th
+    // percentile of the opaque luminances approximates "the farthest visible
+    // thing", i.e. the ground itself, and a running minimum going up enforces
+    // that the ground can only recede. Returns one ramp value per row.
+    _computeGroundRamp(pixels, width, height, horizonFrac) {
+        const ramp = new Float32Array(height);
+        // Rows above the configured horizon reuse the far-field value instead
+        // of being estimated (they contain sky / standing objects, not ground).
+        const horizonRow = horizonFrac != null
+            ? Math.max(0, Math.min(height - 1, Math.round(horizonFrac * height)))
+            : 0;
+        const histogram = new Uint32Array(256);
+        let runningMin = 255;
+        for (let y = height - 1; y >= 0; y--) {
+            if (y < horizonRow) {
+                ramp[y] = runningMin === 255 ? 0 : runningMin;
+                continue;
+            }
+            histogram.fill(0);
+            let opaque = 0;
+            const rowOffset = y * width * 4;
+            for (let x = 0; x < width; x++) {
+                const i = rowOffset + x * 4;
+                if (pixels[i + 3] < 25) continue;
+                const lum = Math.round(0.3 * pixels[i] + 0.59 * pixels[i + 1] + 0.11 * pixels[i + 2]);
+                histogram[lum]++;
+                opaque++;
+            }
+            if (opaque < width * 0.05) {
+                // Mostly transparent row (erased sky): carry the ramp along.
+                ramp[y] = runningMin === 255 ? 0 : runningMin;
+                continue;
+            }
+            const target = opaque * 0.10;
+            let acc = 0, percentile = 0;
+            for (; percentile < 255; percentile++) {
+                acc += histogram[percentile];
+                if (acc >= target) break;
+            }
+            runningMin = Math.min(runningMin, percentile);
+            ramp[y] = runningMin;
+        }
+        return ramp;
+    }
+
+    // Converts camera-proximity (what Depth Anything outputs) into height
+    // above ground (what the shadow ray-march needs) by subtracting the
+    // ground ramp: flat ground drops to zero (no more self-shadowing lawns)
+    // while standing objects keep a height that grows toward their top.
+    _applyGroundCompensation(pixels, width, height, horizonFrac) {
+        const ramp = this._computeGroundRamp(pixels, width, height, horizonFrac);
+        for (let y = 0; y < height; y++) {
+            const rowRamp = ramp[y];
+            const rowOffset = y * width * 4;
+            for (let x = 0; x < width; x++) {
+                const i = rowOffset + x * 4;
+                if (pixels[i + 3] < 25) continue;
+                const lum = 0.3 * pixels[i] + 0.59 * pixels[i + 1] + 0.11 * pixels[i + 2];
+                const h = Math.max(0, Math.min(255, Math.round(lum - rowRamp)));
+                pixels[i] = pixels[i + 1] = pixels[i + 2] = h;
+            }
+        }
+    }
+
+    // Returns the texture source for the shadow depth map: the raw image, or
+    // a canvas holding the ground-compensated version when
+    // shadow.ground_compensation is enabled.
+    _prepareDepthSource(img, shadowCfg) {
+        if (!shadowCfg.ground_compensation) return img;
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(img, 0, 0);
+            const imageData = ctx.getImageData(0, 0, img.width, img.height);
+            this._applyGroundCompensation(imageData.data, img.width, img.height, shadowCfg.horizon ?? null);
+            ctx.putImageData(imageData, 0, 0);
+            return canvas;
+        } catch (e) {
+            // A cross-origin depth map taints the canvas: fall back to the raw map.
+            console.warn('[MeteoCard] ground compensation unavailable:', e);
+            return img;
+        }
+    }
+
     _initShadowEngine() {
         const canvas = this._domCache.shadowCanvas;
         if (!canvas) return;
@@ -2377,8 +2467,7 @@ class MeteoCard extends HTMLElement {
         // depth_exp defaults to 1.0, where pow() is a no-op — the call is
         // baked out of the shader entirely in that case (it would otherwise
         // run once per texture tap, up to ~1000 times per pixel).
-        const shadowCfgInit = this._meteoConfig.get('shadow') || {};
-        const depthExpr = (shadowCfgInit.depth_exp ?? 1.0) !== 1.0
+        const depthExpr = (shadowCfg.depth_exp ?? 1.0) !== 1.0
             ? 'pow(max(h, 1e-6), uDepthExp) * uDepthGain'
             : 'max(h, 1e-6) * uDepthGain';
         const makeFragmentSource = (dirCount, stepCount) => `
@@ -2544,10 +2633,11 @@ class MeteoCard extends HTMLElement {
 
             const onReady = (depthImg) => {
                 try {
+                    const depthSource = this._prepareDepthSource(depthImg, shadowCfg);
                     this._shadowTexW = depthImg.width;
                     this._shadowTexH = depthImg.height;
                     gl.activeTexture(gl.TEXTURE0);
-                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, depthImg);
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, depthSource);
                     const shared = SingletonManager.getSingleton(this._singletonId);
                     const isDemo = shared && shared.demoState === 'running';
                     this._shadowIsDemo = null;
