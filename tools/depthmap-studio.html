@@ -58,7 +58,7 @@
             <input type="range" id="elev" min="3" max="85" step="1" value="30">
         </div>
         <div class="row">
-            <label>Shadow direction <output id="dirOut">135°</output></label>
+            <label>Sun direction (screen) <output id="dirOut">135°</output></label>
             <input type="range" id="dir" min="0" max="360" step="1" value="135">
         </div>
         <div class="row">
@@ -267,7 +267,39 @@ function render() {
         overlay.data[p + 3] = 255;
     }
     ctx.putImageData(overlay, 0, 0);
+    drawSunMarker(ctx, w, h);
     $('download').disabled = !$('comp').checked;
+}
+
+// Discreet sun marker: shows where the light comes from so the shadow axis
+// reads at a glance. The ray-march walks TOWARD the light, so the marker sits
+// at the slider angle and shadows stretch away from it. Distance from the
+// center encodes elevation (high sun = near the center, grazing = at the edge).
+function drawSunMarker(ctx, w, h) {
+    const ang = parseFloat($('dir').value) * Math.PI / 180;
+    const elevFrac = 1 - parseFloat($('elev').value) / 90;
+    const cx = w / 2, cy = h / 2;
+    const r = Math.min(w, h) * 0.48 * Math.max(0.12, elevFrac);
+    const sx = cx + Math.cos(ang) * r, sy = cy + Math.sin(ang) * r;
+    ctx.save();
+    // Shadow axis: a faint dashed line from the sun through the center.
+    ctx.strokeStyle = 'rgba(255,220,100,0.30)';
+    ctx.setLineDash([4, 6]);
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(cx - Math.cos(ang) * r * 0.6, cy - Math.sin(ang) * r * 0.6);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Sun glyph: soft glow + small disc.
+    const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, 14);
+    glow.addColorStop(0, 'rgba(255,232,120,0.9)');
+    glow.addColorStop(0.4, 'rgba(255,205,70,0.45)');
+    glow.addColorStop(1, 'rgba(255,205,70,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(sx, sy, 14, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffe678';
+    ctx.beginPath(); ctx.arc(sx, sy, 3.5, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
 }
 
 function updateYaml() {
