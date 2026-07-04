@@ -3316,4 +3316,8 @@ if (!customElements.get('meteo-card')) {
     customElements.define('meteo-card', MeteoCard);
 }
 window.customCards = window.customCards || [];
-window.customCards.push(CARD_CONFIG);
+// Guard against double loads (stale cache + fresh resource, duplicated HACS
+// resource entries): pushing twice duplicates the card in the picker list.
+if (!window.customCards.some(card => card.type === CARD_CONFIG.type)) {
+    window.customCards.push(CARD_CONFIG);
+}
