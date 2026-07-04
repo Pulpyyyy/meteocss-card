@@ -109,6 +109,31 @@ const lum = (px, x, y) => px[(y * W + x) * 4];
     assert('ground still ~0 with explicit horizon', lum(pxHorizon, 15, 70) <= 2, `got ${lum(pxHorizon, 15, 70)}`);
 }
 
+// --- Quantization noise: jittered ground must flatten to exactly 0 ---
+// (palettized depth maps leave ±few-level speckle; residual micro-heights
+// freckle the shadow with false occluders at close range)
+{
+    const px = buildScene();
+    for (let y = 45; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+            if (x >= 5 && x <= 7) continue; // keep the wall clean
+            const i = (y * W + x) * 4;
+            const jitter = ((x * 7 + y * 13) % 7) - 3; // deterministic ±3
+            const v = Math.max(0, Math.min(255, px[i] + jitter));
+            px[i] = px[i + 1] = px[i + 2] = v;
+        }
+    }
+    card._applyGroundCompensation(px, W, H, null);
+    let maxGround = 0;
+    for (let y = 50; y < H; y++) {
+        for (let x = 10; x < W; x++) {
+            maxGround = Math.max(maxGround, lum(px, x, y));
+        }
+    }
+    assert('noisy ground fully squashed to 0 (no shadow freckles)', maxGround === 0, `max residual ${maxGround}`);
+    assert('wall still tall despite the noise floor', lum(px, 6, 35) >= 150, `got ${lum(px, 6, 35)}`);
+}
+
 // --- _prepareDepthSource plumbing ---
 {
     const img = { width: W, height: H };

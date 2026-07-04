@@ -2380,14 +2380,30 @@ class MeteoCard extends HTMLElement {
     // while standing objects keep a height that grows toward their top.
     _applyGroundCompensation(pixels, width, height, horizonFrac) {
         const ramp = this._computeGroundRamp(pixels, width, height, horizonFrac);
+        // Vertical smoothing: the running-min ramp is a staircase whose steps
+        // would survive the subtraction as horizontal bands on the ground.
+        const smoothed = new Float32Array(height);
         for (let y = 0; y < height; y++) {
-            const rowRamp = ramp[y];
+            let sum = 0, n = 0;
+            for (let k = -2; k <= 2; k++) {
+                const yy = y + k;
+                if (yy >= 0 && yy < height) { sum += ramp[yy]; n++; }
+            }
+            smoothed[y] = sum / n;
+        }
+        for (let y = 0; y < height; y++) {
+            const rowRamp = smoothed[y];
             const rowOffset = y * width * 4;
             for (let x = 0; x < width; x++) {
                 const i = rowOffset + x * 4;
                 if (pixels[i + 3] < 25) continue;
                 const lum = 0.3 * pixels[i] + 0.59 * pixels[i + 1] + 0.11 * pixels[i + 2];
-                const h = Math.max(0, Math.min(255, Math.round(lum - rowRamp)));
+                let h = Math.max(0, Math.min(255, Math.round(lum - rowRamp)));
+                // Quantization noise floor: palettized/8-bit depth maps leave a
+                // ±few-level speckle on the flattened ground. Even one level
+                // clears the ray-march threshold at close range and freckles
+                // the shadow with false micro-occluders — squash it.
+                if (h < 10) h = 0;
                 pixels[i] = pixels[i + 1] = pixels[i + 2] = h;
             }
         }
