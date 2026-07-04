@@ -168,6 +168,14 @@ function applyGroundCompensation(pixels, width, height, horizonFrac, strength = 
 // Masked ground drops to exactly 0; objects keep their height above their
 // LOCAL ground. Export the result — the card then needs no compensation.
 // ─────────────────────────────────────────────────────────────────────────────
+function sceneToArray(img, w, h) {
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, w, h);
+    return ctx.getImageData(0, 0, w, h).data;
+}
+
 function maskToArray(img, w, h) {
     const cv = document.createElement('canvas');
     cv.width = w; cv.height = h;
@@ -180,7 +188,7 @@ function maskToArray(img, w, h) {
     return m;
 }
 
-function applyMaskCompensation(pixels, w, h, mask) {
+function applyMaskCompensation(pixels, w, h, mask, scenePx = null) {
     const lum = new Float32Array(w * h);
     const opaque = new Uint8Array(w * h);
     for (let i = 0; i < w * h; i++) {
@@ -261,30 +269,50 @@ function applyMaskCompensation(pixels, w, h, mask) {
         }
         pixels[p] = pixels[p + 1] = pixels[p + 2] = hv;
     }
-    // Selective smoothing of object heights: the source depth map carries
-    // quantization waves on smooth slopes (roofs). Averaging only neighbors
-    // of similar height flattens the waves while keeping real edges crisp.
-    const RANGE = 14, RADIUS = 8;
-    for (let pass = 0; pass < 2; pass++) {
-        for (const dir of ['h', 'v']) {
-            const src = new Float32Array(w * h);
-            for (let i = 0; i < w * h; i++) src[i] = pixels[i * 4];
-            for (let y = 0; y < h; y++) {
-                for (let x = 0; x < w; x++) {
-                    const i = y * w + x;
-                    if (!opaque[i]) continue;
-                    const c = src[i];
-                    let sum = 0, n = 0;
-                    for (let k = -RADIUS; k <= RADIUS; k++) {
-                        const xx = dir === 'h' ? x + k : x;
-                        const yy = dir === 'v' ? y + k : y;
-                        if (xx < 0 || xx >= w || yy < 0 || yy >= h) continue;
-                        const j = yy * w + xx;
-                        if (!opaque[j] || Math.abs(src[j] - c) > RANGE) continue;
-                        sum += src[j]; n++;
+    // Joint-bilateral smoothing of object heights, guided by the SCENE photo
+    // when one is loaded: neighbors are averaged only when height AND scene
+    // color are close (quantization waves on same-colored surfaces like a
+    // roof flatten; differently-colored structures like facade windows are
+    // never mixed in), with a crest break so the scan stops when it crosses
+    // a ridge (drop of more than CREST levels below the running peak).
+    if (scenePx) {
+        const RANGE = 14, RADIUS = 8, COLOR = 40, CREST = 8;
+        const colorDist = (a, b) => {
+            const dr = scenePx[a] - scenePx[b];
+            const dg = scenePx[a + 1] - scenePx[b + 1];
+            const db = scenePx[a + 2] - scenePx[b + 2];
+            return Math.sqrt(dr * dr + dg * dg + db * db);
+        };
+        for (let pass = 0; pass < 2; pass++) {
+            for (const dir of ['h', 'v']) {
+                const src = new Float32Array(w * h);
+                for (let i = 0; i < w * h; i++) src[i] = pixels[i * 4];
+                for (let y = 0; y < h; y++) {
+                    for (let x = 0; x < w; x++) {
+                        const i = y * w + x;
+                        if (!opaque[i]) continue;
+                        const c = src[i];
+                        let sum = c, n = 1;
+                        for (const sign of [-1, 1]) {
+                            let peak = c, valley = c;
+                            for (let k = 1; k <= RADIUS; k++) {
+                                const xx = dir === 'h' ? x + sign * k : x;
+                                const yy = dir === 'v' ? y + sign * k : y;
+                                if (xx < 0 || xx >= w || yy < 0 || yy >= h) break;
+                                const j = yy * w + xx;
+                                if (!opaque[j]) break;
+                                const v = src[j];
+                                if (Math.abs(v - c) > RANGE) break;
+                                if (colorDist(i * 4, j * 4) > COLOR) break;
+                                peak = Math.max(peak, v);
+                                valley = Math.min(valley, v);
+                                if (peak - v > CREST || v - valley > CREST) break;
+                                sum += v; n++;
+                            }
+                        }
+                        const hv = Math.round(sum / n);
+                        pixels[i * 4] = pixels[i * 4 + 1] = pixels[i * 4 + 2] = hv;
                     }
-                    const hv = Math.round(sum / n);
-                    pixels[i * 4] = pixels[i * 4 + 1] = pixels[i * 4 + 2] = hv;
                 }
             }
         }
@@ -399,7 +427,8 @@ function render() {
     const { w, h } = state;
     // Height map: copy of the raw depth, optionally compensated.
     const heightData = new ImageData(new Uint8ClampedArray(state.raw.data), w, h);
-    if (state.maskImg) applyMaskCompensation(heightData.data, w, h, maskToArray(state.maskImg, w, h));
+    if (state.maskImg) applyMaskCompensation(heightData.data, w, h, maskToArray(state.maskImg, w, h),
+        state.sceneImg ? sceneToArray(state.sceneImg, w, h) : null);
     else if (compStrength() > 0) applyGroundCompensation(heightData.data, w, h, currentHorizon(), compStrength());
     paintImageData($('cvHeight'), heightData, w, h);
 
@@ -550,7 +579,8 @@ $('download').addEventListener('click', () => {
     const ctx = cv.getContext('2d', { willReadFrequently: true });
     ctx.drawImage(img, 0, 0);
     const full = ctx.getImageData(0, 0, img.width, img.height);
-    if (state.maskImg) applyMaskCompensation(full.data, img.width, img.height, maskToArray(state.maskImg, img.width, img.height));
+    if (state.maskImg) applyMaskCompensation(full.data, img.width, img.height, maskToArray(state.maskImg, img.width, img.height),
+        state.sceneImg ? sceneToArray(state.sceneImg, img.width, img.height) : null);
     else applyGroundCompensation(full.data, img.width, img.height, currentHorizon(), compStrength());
     ctx.putImageData(full, 0, 0);
     const a = document.createElement('a');
