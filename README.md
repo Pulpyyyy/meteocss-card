@@ -393,6 +393,8 @@ Some zones (sky, distant background, UI elements) should never produce shadows. 
 
 > **Ground looking wrong?** Depth models measure *distance to the camera*, not *height above ground* — so the ground in the foreground is bright and can self-shadow like a wall. Instead of erasing all of it by hand, enable `shadow.ground_compensation: true`: the card estimates the ground-plane ramp of your image and subtracts it, so flat ground stops casting shadows while buildings and trees keep theirs. If the automatic estimate misbehaves, pin the horizon line manually with `shadow.horizon: 0.4` (0 = top of the image, 1 = bottom).
 
+> **Preview before deploying**: open [`tools/depthmap-studio.html`](tools/depthmap-studio.html) in any browser (everything runs locally), drop your depth map and scene photo, tune the horizon/sun/intensity sliders with a live shadow preview using the card's exact algorithm, then copy the generated YAML — or export a pre-compensated PNG.
+
 #### Step 3 — Host the Depth Map and Reference It
 
 Place the PNG in your Home Assistant `www/` folder or any accessible URL, then reference it in the card config:

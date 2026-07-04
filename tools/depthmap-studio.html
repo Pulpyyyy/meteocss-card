@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MeteoCSS Depth Map Studio</title>
+<style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 16px; background: #14161b; color: #dde3ea; font: 14px/1.45 system-ui, sans-serif; }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    h1 span { color: #4ba0db; }
+    .hint { color: #8b95a3; margin: 0 0 16px; font-size: 13px; }
+    .layout { display: flex; flex-wrap: wrap; gap: 16px; }
+    .panel { background: #1c1f26; border: 1px solid #2b303a; border-radius: 10px; padding: 14px; }
+    .controls { flex: 0 0 300px; display: flex; flex-direction: column; gap: 10px; }
+    .views { flex: 1 1 640px; display: flex; flex-wrap: wrap; gap: 16px; }
+    .view { flex: 1 1 300px; min-width: 260px; }
+    .view h2 { font-size: 13px; margin: 0 0 8px; color: #8b95a3; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+    canvas { width: 100%; height: auto; background: repeating-conic-gradient(#20242c 0% 25%, #262b35 0% 50%) 0 0/16px 16px; border-radius: 6px; display: block; }
+    label { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
+    label b { font-weight: 600; }
+    label output { color: #4ba0db; font-variant-numeric: tabular-nums; min-width: 44px; text-align: right; }
+    input[type=range] { width: 100%; }
+    .row { display: flex; flex-direction: column; gap: 4px; }
+    .files { display: flex; gap: 8px; flex-wrap: wrap; }
+    button, .filebtn { background: #2b6cb0; border: 0; border-radius: 6px; color: #fff; padding: 8px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+    button:hover, .filebtn:hover { background: #3182ce; }
+    button:disabled { background: #2b303a; color: #667080; cursor: default; }
+    .filebtn.secondary, #download { background: #37404f; }
+    .filebtn input { display: none; }
+    pre { background: #12141a; border: 1px solid #2b303a; border-radius: 6px; padding: 10px; font-size: 12px; overflow-x: auto; margin: 6px 0 0; }
+    .sep { border-top: 1px solid #2b303a; margin: 4px 0; }
+    .drop body, body.drop { outline: 3px dashed #4ba0db; outline-offset: -6px; }
+    .muted { color: #667080; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>🌤️ MeteoCSS <span>Depth Map Studio</span></h1>
+<p class="hint">Drop the greyscale depth map from Depth Anything (with the sky erased to transparency), preview the card's shadow with ground compensation, then copy the YAML or export a corrected PNG. Everything runs locally in your browser — nothing is uploaded.</p>
+
+<div class="layout">
+    <div class="panel controls">
+        <div class="files">
+            <label class="filebtn">Load depth map… <input type="file" id="fileDepth" accept="image/*"></label>
+            <label class="filebtn secondary">Scene photo (optional)… <input type="file" id="fileScene" accept="image/*"></label>
+        </div>
+        <div class="sep"></div>
+        <label><b>Ground compensation</b> <input type="checkbox" id="comp" checked></label>
+        <label><b>Auto horizon</b> <input type="checkbox" id="autoHorizon" checked></label>
+        <div class="row">
+            <label>Horizon line <output id="horizonOut">0.40</output></label>
+            <input type="range" id="horizon" min="0" max="1" step="0.01" value="0.4" disabled>
+        </div>
+        <div class="sep"></div>
+        <div class="row">
+            <label>Sun elevation <output id="elevOut">30°</output></label>
+            <input type="range" id="elev" min="3" max="85" step="1" value="30">
+        </div>
+        <div class="row">
+            <label>Shadow direction <output id="dirOut">135°</output></label>
+            <input type="range" id="dir" min="0" max="360" step="1" value="135">
+        </div>
+        <div class="row">
+            <label>Intensity <output id="intensityOut">0.70</output></label>
+            <input type="range" id="intensity" min="0" max="1" step="0.05" value="0.7">
+        </div>
+        <div class="row">
+            <label>Depth gain <output id="gainOut">1.15</output></label>
+            <input type="range" id="gain" min="0.3" max="3" step="0.05" value="1.15">
+        </div>
+        <div class="sep"></div>
+        <button id="download" disabled>⬇ Download compensated PNG</button>
+        <p class="muted">Use the PNG if you prefer pre-baked compensation (then keep <code>ground_compensation: false</code> in the card), or just copy the YAML below.</p>
+        <pre id="yaml">shadow:
+  depthmap: /local/my-depthmap.png</pre>
+    </div>
+
+    <div class="views">
+        <div class="panel view"><h2>Depth map (input)</h2><canvas id="cvDepth" width="4" height="3"></canvas></div>
+        <div class="panel view"><h2>Height map (compensated)</h2><canvas id="cvHeight" width="4" height="3"></canvas></div>
+        <div class="panel view"><h2>Shadow preview</h2><canvas id="cvShadow" width="4" height="3"></canvas></div>
+    </div>
+</div>
+
+<script>
+'use strict';
+// ─────────────────────────────────────────────────────────────────────────────
+// Ground compensation — kept in sync with dist/meteocss-card.js
+// (_computeGroundRamp / _applyGroundCompensation). If you change the card's
+// algorithm, mirror it here.
+// ─────────────────────────────────────────────────────────────────────────────
+function computeGroundRamp(pixels, width, height, horizonFrac) {
+    const ramp = new Float32Array(height);
+    const horizonRow = horizonFrac != null
+        ? Math.max(0, Math.min(height - 1, Math.round(horizonFrac * height)))
+        : 0;
+    const histogram = new Uint32Array(256);
+    let runningMin = 255;
+    for (let y = height - 1; y >= 0; y--) {
+        if (y < horizonRow) { ramp[y] = runningMin === 255 ? 0 : runningMin; continue; }
+        histogram.fill(0);
+        let opaque = 0;
+        const rowOffset = y * width * 4;
+        for (let x = 0; x < width; x++) {
+            const i = rowOffset + x * 4;
+            if (pixels[i + 3] < 25) continue;
+            const lum = Math.round(0.3 * pixels[i] + 0.59 * pixels[i + 1] + 0.11 * pixels[i + 2]);
+            histogram[lum]++;
+            opaque++;
+        }
+        if (opaque < width * 0.05) { ramp[y] = runningMin === 255 ? 0 : runningMin; continue; }
+        const target = opaque * 0.10;
+        let acc = 0, percentile = 0;
+        for (; percentile < 255; percentile++) { acc += histogram[percentile]; if (acc >= target) break; }
+        runningMin = Math.min(runningMin, percentile);
+        ramp[y] = runningMin;
+    }
+    return ramp;
+}
+
+function applyGroundCompensation(pixels, width, height, horizonFrac) {
+    const ramp = computeGroundRamp(pixels, width, height, horizonFrac);
+    for (let y = 0; y < height; y++) {
+        const rowRamp = ramp[y];
+        const rowOffset = y * width * 4;
+        for (let x = 0; x < width; x++) {
+            const i = rowOffset + x * 4;
+            if (pixels[i + 3] < 25) continue;
+            const lum = 0.3 * pixels[i] + 0.59 * pixels[i + 1] + 0.11 * pixels[i + 2];
+            const h = Math.max(0, Math.min(255, Math.round(lum - rowRamp)));
+            pixels[i] = pixels[i + 1] = pixels[i + 2] = h;
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shadow preview — a faithful JS port of the card's ray-march (demo tier:
+// 8 jittered directions, 16 steps, slope = len·tan(elevation), 0.5 occlusion,
+// ambient 0.2, bias 0.003). Normal-based relighting is omitted here.
+// ─────────────────────────────────────────────────────────────────────────────
+function renderShadow(height01, mask, w, h, opts) {
+    const { elevation, directionDeg, intensity, gain } = opts;
+    const len = (90 - elevation) / 60;
+    const slope = Math.max(0.05, len * Math.tan(Math.max(2, Math.min(88, elevation)) * Math.PI / 180));
+    const dirX = Math.cos(directionDeg * Math.PI / 180) * len;
+    const dirY = Math.sin(directionDeg * Math.PI / 180) * len;
+    const bias = 0.003, ambient = 0.2, stepSize = 0.002;
+    const out = new Float32Array(w * h);
+    const depth = (x, y) => {
+        const xi = Math.max(0, Math.min(w - 1, Math.round(x)));
+        const yi = Math.max(0, Math.min(h - 1, Math.round(y)));
+        return height01[yi * w + xi] * gain;
+    };
+    for (let y = 0; y < h; y++) {
+        const v = y / h;
+        for (let x = 0; x < w; x++) {
+            const idx = y * w + x;
+            if (!mask[idx]) continue;
+            const u = x / w;
+            const hBase = height01[idx] * gain;
+            const seed = (Math.sin(u * 12.9898 + v * 78.233) * 43758.5453) % 1;
+            let acc = 0;
+            for (let i = 0; i < 8; i++) {
+                const ang = (i + seed) * 0.7854;
+                let sh = 1.0;
+                for (let j = 1; j < 16; j++) {
+                    const dist = j * stepSize;
+                    const soft = dist * 0.22;
+                    const jx = Math.cos(ang) * soft, jy = Math.sin(ang) * soft;
+                    const pu = u + (dirX + jx) * dist, pv = v + (dirY + jy) * dist;
+                    if (pu > 0 && pu < 1 && pv > 0 && pv < 1) {
+                        if (depth(pu * w, pv * h) > hBase + dist * slope + bias) { sh = 0.5; break; }
+                    }
+                }
+                acc += sh;
+            }
+            const shade = acc / 8;
+            out[idx] = Math.max(0, Math.min(1 - ambient, (1 - shade) * intensity));
+        }
+    }
+    return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UI wiring
+// ─────────────────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const state = { depthImg: null, sceneImg: null, raw: null, w: 0, h: 0 };
+const PREVIEW_W = 380;
+
+function loadImageFile(file, cb) {
+    const img = new Image();
+    img.onload = () => cb(img);
+    img.src = URL.createObjectURL(file);
+}
+
+function imageToData(img, maxW) {
+    const scale = Math.min(1, maxW / img.width);
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, w, h);
+    return { data: ctx.getImageData(0, 0, w, h), w, h };
+}
+
+function currentHorizon() {
+    return $('autoHorizon').checked ? null : parseFloat($('horizon').value);
+}
+
+function paintImageData(canvas, imageData, w, h) {
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').putImageData(imageData, 0, 0);
+}
+
+let renderQueued = false;
+function scheduleRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(() => { renderQueued = false; render(); });
+}
+
+function render() {
+    $('horizonOut').textContent = parseFloat($('horizon').value).toFixed(2);
+    $('elevOut').textContent = `${$('elev').value}°`;
+    $('dirOut').textContent = `${$('dir').value}°`;
+    $('intensityOut').textContent = parseFloat($('intensity').value).toFixed(2);
+    $('gainOut').textContent = parseFloat($('gain').value).toFixed(2);
+    $('horizon').disabled = $('autoHorizon').checked;
+    updateYaml();
+    if (!state.raw) return;
+
+    const { w, h } = state;
+    // Height map: copy of the raw depth, optionally compensated.
+    const heightData = new ImageData(new Uint8ClampedArray(state.raw.data), w, h);
+    if ($('comp').checked) applyGroundCompensation(heightData.data, w, h, currentHorizon());
+    paintImageData($('cvHeight'), heightData, w, h);
+
+    // Shadow march on the (possibly compensated) heights.
+    const height01 = new Float32Array(w * h);
+    const mask = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+        const p = i * 4;
+        height01[i] = (0.3 * heightData.data[p] + 0.59 * heightData.data[p + 1] + 0.11 * heightData.data[p + 2]) / 255;
+        mask[i] = heightData.data[p + 3] >= 25 ? 1 : 0;
+    }
+    const shadow = renderShadow(height01, mask, w, h, {
+        elevation: parseFloat($('elev').value),
+        directionDeg: parseFloat($('dir').value),
+        intensity: parseFloat($('intensity').value),
+        gain: parseFloat($('gain').value),
+    });
+
+    // Composite: scene photo (or greyscale heights) darkened by the shadow.
+    const cv = $('cvShadow');
+    cv.width = w; cv.height = h;
+    const ctx = cv.getContext('2d');
+    if (state.sceneImg) ctx.drawImage(state.sceneImg, 0, 0, w, h);
+    else ctx.putImageData(heightData, 0, 0);
+    const overlay = ctx.getImageData(0, 0, w, h);
+    for (let i = 0; i < w * h; i++) {
+        const k = 1 - shadow[i];
+        const p = i * 4;
+        overlay.data[p] *= k; overlay.data[p + 1] *= k; overlay.data[p + 2] *= k;
+        overlay.data[p + 3] = 255;
+    }
+    ctx.putImageData(overlay, 0, 0);
+    $('download').disabled = !$('comp').checked;
+}
+
+function updateYaml() {
+    const lines = ['shadow:', '  depthmap: /local/my-depthmap.png'];
+    if ($('comp').checked) {
+        lines.push('  ground_compensation: true');
+        if (!$('autoHorizon').checked) lines.push(`  horizon: ${parseFloat($('horizon').value).toFixed(2)}`);
+    }
+    const gain = parseFloat($('gain').value);
+    if (Math.abs(gain - 1.15) > 0.001) lines.push(`  depth_gain: ${gain.toFixed(2)}`);
+    const intensity = parseFloat($('intensity').value);
+    if (Math.abs(intensity - 0.7) > 0.001) lines.push(`  intensity: ${intensity.toFixed(2)}`);
+    $('yaml').textContent = lines.join('\n');
+}
+
+function setDepthImage(img) {
+    state.depthImg = img;
+    const { data, w, h } = imageToData(img, PREVIEW_W);
+    state.raw = data; state.w = w; state.h = h;
+    paintImageData($('cvDepth'), new ImageData(new Uint8ClampedArray(data.data), w, h), w, h);
+    scheduleRender();
+}
+
+$('fileDepth').addEventListener('change', (e) => e.target.files[0] && loadImageFile(e.target.files[0], setDepthImage));
+$('fileScene').addEventListener('change', (e) => e.target.files[0] && loadImageFile(e.target.files[0], (img) => { state.sceneImg = img; scheduleRender(); }));
+
+for (const id of ['comp', 'autoHorizon', 'horizon', 'elev', 'dir', 'intensity', 'gain']) {
+    $(id).addEventListener('input', scheduleRender);
+}
+
+// Drag & drop: first image = depth map, second = scene photo.
+document.body.addEventListener('dragover', (e) => { e.preventDefault(); document.body.classList.add('drop'); });
+document.body.addEventListener('dragleave', () => document.body.classList.remove('drop'));
+document.body.addEventListener('drop', (e) => {
+    e.preventDefault();
+    document.body.classList.remove('drop');
+    const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/'));
+    if (!files.length) return;
+    loadImageFile(files[0], state.depthImg ? (img) => { state.sceneImg = img; scheduleRender(); } : setDepthImage);
+    if (files[1]) loadImageFile(files[1], (img) => { state.sceneImg = img; scheduleRender(); });
+});
+
+// Export: full-resolution compensation of the original depth map.
+$('download').addEventListener('click', () => {
+    if (!state.depthImg) return;
+    const img = state.depthImg;
+    const cv = document.createElement('canvas');
+    cv.width = img.width; cv.height = img.height;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0);
+    const full = ctx.getImageData(0, 0, img.width, img.height);
+    applyGroundCompensation(full.data, img.width, img.height, currentHorizon());
+    ctx.putImageData(full, 0, 0);
+    const a = document.createElement('a');
+    a.download = 'depthmap-compensated.png';
+    a.href = cv.toDataURL('image/png');
+    a.click();
+});
+
+render();
+</script>
+</body>
+</html>
