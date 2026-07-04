@@ -13,9 +13,9 @@
     .hint { color: #8b95a3; margin: 0 0 16px; font-size: 13px; }
     .layout { display: flex; flex-wrap: wrap; gap: 16px; }
     .panel { background: #1c1f26; border: 1px solid #2b303a; border-radius: 10px; padding: 14px; }
-    .controls { flex: 0 0 300px; display: flex; flex-direction: column; gap: 10px; }
-    .views { flex: 1 1 640px; display: flex; flex-wrap: wrap; gap: 16px; }
-    .view { flex: 1 1 300px; min-width: 260px; }
+    .side { flex: 0 0 320px; display: flex; flex-direction: column; gap: 16px; }
+    .controls { display: flex; flex-direction: column; gap: 10px; }
+    .main { flex: 1 1 640px; min-width: 320px; align-self: flex-start; }
     .view h2 { font-size: 13px; margin: 0 0 8px; color: #8b95a3; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
     canvas { width: 100%; height: auto; background: repeating-conic-gradient(#20242c 0% 25%, #262b35 0% 50%) 0 0/16px 16px; border-radius: 6px; display: block; }
     label { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
@@ -40,6 +40,7 @@
 <p class="hint">Drop the greyscale depth map from Depth Anything (with the sky erased to transparency), preview the card's shadow with ground compensation, then copy the YAML or export a corrected PNG. Everything runs locally in your browser — nothing is uploaded.</p>
 
 <div class="layout">
+    <div class="side">
     <div class="panel controls">
         <div class="files">
             <label class="filebtn">Load depth map… <input type="file" id="fileDepth" accept="image/*"></label>
@@ -76,11 +77,11 @@
   depthmap: /local/my-depthmap.png</pre>
     </div>
 
-    <div class="views">
         <div class="panel view"><h2>Depth map (input)</h2><canvas id="cvDepth" width="4" height="3"></canvas></div>
         <div class="panel view"><h2>Height map (compensated)</h2><canvas id="cvHeight" width="4" height="3"></canvas></div>
-        <div class="panel view"><h2>Shadow preview</h2><canvas id="cvShadow" width="4" height="3"></canvas></div>
     </div>
+
+    <div class="panel view main"><h2>Shadow preview</h2><canvas id="cvShadow" width="4" height="3"></canvas></div>
 </div>
 
 <script>
@@ -203,7 +204,9 @@ function renderShadow(height01, mask, w, h, opts) {
 // ─────────────────────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
 const state = { depthImg: null, sceneImg: null, raw: null, w: 0, h: 0 };
-const PREVIEW_W = 380;
+// March resolution: the shadow is computed at this width then up-scaled onto
+// the full-resolution preview (higher = sharper shadows, slower sliders).
+const PREVIEW_W = 520;
 
 function loadImageFile(file, cb) {
     const img = new Image();
@@ -269,36 +272,55 @@ function render() {
         gain: parseFloat($('gain').value),
     });
 
-    // Composite: scene photo (or greyscale heights) darkened by the shadow.
+    // Composite at display resolution: the scene photo (or the height map)
+    // darkened by the up-scaled shadow. Drawing black-with-alpha equals the
+    // per-pixel multiplication, and the smoothing hides the march grid.
     const cv = $('cvShadow');
-    cv.width = w; cv.height = h;
+    const natural = state.sceneImg || state.depthImg;
+    const scale = Math.min(1, 1600 / natural.width);
+    cv.width = Math.round(natural.width * scale);
+    cv.height = Math.round(natural.height * scale);
     const ctx = cv.getContext('2d');
-    if (state.sceneImg) ctx.drawImage(state.sceneImg, 0, 0, w, h);
-    else ctx.putImageData(heightData, 0, 0);
-    const overlay = ctx.getImageData(0, 0, w, h);
-    for (let i = 0; i < w * h; i++) {
-        const k = 1 - shadow[i];
-        const p = i * 4;
-        overlay.data[p] *= k; overlay.data[p + 1] *= k; overlay.data[p + 2] *= k;
-        overlay.data[p + 3] = 255;
+    ctx.imageSmoothingEnabled = true;
+    if (state.sceneImg) {
+        ctx.drawImage(state.sceneImg, 0, 0, cv.width, cv.height);
+    } else {
+        const tmp = document.createElement('canvas');
+        tmp.width = w; tmp.height = h;
+        tmp.getContext('2d').putImageData(heightData, 0, 0);
+        ctx.drawImage(tmp, 0, 0, cv.width, cv.height);
     }
-    ctx.putImageData(overlay, 0, 0);
-    drawSunMarker(ctx, w, h);
+    const ov = document.createElement('canvas');
+    ov.width = w; ov.height = h;
+    const octx = ov.getContext('2d');
+    const od = octx.createImageData(w, h);
+    for (let i = 0; i < w * h; i++) {
+        od.data[i * 4 + 3] = Math.round(shadow[i] * 255);
+    }
+    octx.putImageData(od, 0, 0);
+    ctx.drawImage(ov, 0, 0, cv.width, cv.height);
+    drawSunMarker(ctx, cv.width, cv.height);
     $('download').disabled = !$('comp').checked;
 }
 
 // Discreet sun marker. The card models the sun as a DIRECTIONAL light
 // (infinitely far, parallel rays — one shadow axis for the whole image), so
-// the glyph does not mark a position: it marks the axis the light comes
-// from, with a fan of parallel dashed rays making the "at infinity" nature
-// readable. Distance from the center encodes elevation (high sun = near the
-// center, grazing = at the edge).
+// the source is always outside the scene: the glyph is pinned to the border
+// of the preview in the direction the light comes from, with a fan of
+// parallel dashed rays making the "at infinity" nature readable. Elevation
+// does not move it — it only lives in the slider (and the shadow length).
 function drawSunMarker(ctx, w, h) {
     const ang = parseFloat($('dir').value) * Math.PI / 180;
-    const elevFrac = 1 - parseFloat($('elev').value) / 90;
     const cx = w / 2, cy = h / 2;
-    const r = Math.min(w, h) * 0.48 * Math.max(0.12, elevFrac);
-    const sx = cx + Math.cos(ang) * r, sy = cy + Math.sin(ang) * r;
+    const pad = 26;
+    const dirX = Math.cos(ang), dirY = Math.sin(ang);
+    let t = Infinity;
+    if (dirX > 1e-6) t = Math.min(t, (w - pad - cx) / dirX);
+    if (dirX < -1e-6) t = Math.min(t, (pad - cx) / dirX);
+    if (dirY > 1e-6) t = Math.min(t, (h - pad - cy) / dirY);
+    if (dirY < -1e-6) t = Math.min(t, (pad - cy) / dirY);
+    if (!isFinite(t)) t = 0;
+    const sx = cx + dirX * t, sy = cy + dirY * t;
     // Ray direction: from the sun into the scene; px/py = perpendicular.
     const dx = -Math.cos(ang), dy = -Math.sin(ang);
     const px = -dy, py = dx;
