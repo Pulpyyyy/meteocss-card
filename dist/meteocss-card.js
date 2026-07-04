@@ -2378,7 +2378,9 @@ class MeteoCard extends HTMLElement {
     // above ground (what the shadow ray-march needs) by subtracting the
     // ground ramp: flat ground drops to zero (no more self-shadowing lawns)
     // while standing objects keep a height that grows toward their top.
-    _applyGroundCompensation(pixels, width, height, horizonFrac) {
+    // strength (0..1) doses the subtraction — partial compensation keeps some
+    // ground relief while still taming the self-shadowing.
+    _applyGroundCompensation(pixels, width, height, horizonFrac, strength = 1) {
         const ramp = this._computeGroundRamp(pixels, width, height, horizonFrac);
         // Vertical smoothing: the running-min ramp is a staircase whose steps
         // would survive the subtraction as horizontal bands on the ground.
@@ -2392,7 +2394,7 @@ class MeteoCard extends HTMLElement {
             smoothed[y] = sum / n;
         }
         for (let y = 0; y < height; y++) {
-            const rowRamp = smoothed[y];
+            const rowRamp = smoothed[y] * strength;
             const rowOffset = y * width * 4;
             for (let x = 0; x < width; x++) {
                 const i = rowOffset + x * 4;
@@ -2402,18 +2404,22 @@ class MeteoCard extends HTMLElement {
                 // Quantization noise floor: palettized/8-bit depth maps leave a
                 // ±few-level speckle on the flattened ground. Even one level
                 // clears the ray-march threshold at close range and freckles
-                // the shadow with false micro-occluders — squash it.
-                if (h < 10) h = 0;
+                // the shadow with false micro-occluders — squash it. Only
+                // meaningful at full strength, where the ground sits near 0.
+                if (strength >= 1 && h < 10) h = 0;
                 pixels[i] = pixels[i + 1] = pixels[i + 2] = h;
             }
         }
     }
 
     // Returns the texture source for the shadow depth map: the raw image, or
-    // a canvas holding the ground-compensated version when
-    // shadow.ground_compensation is enabled.
+    // a canvas holding the ground-compensated version.
+    // shadow.ground_compensation accepts true (full) or a 0..1 strength.
     _prepareDepthSource(img, shadowCfg) {
-        if (!shadowCfg.ground_compensation) return img;
+        const strength = shadowCfg.ground_compensation === true
+            ? 1
+            : Math.max(0, Math.min(1, Number(shadowCfg.ground_compensation) || 0));
+        if (strength <= 0) return img;
         try {
             const canvas = document.createElement('canvas');
             canvas.width = img.width;
@@ -2421,7 +2427,7 @@ class MeteoCard extends HTMLElement {
             const ctx = canvas.getContext('2d', { willReadFrequently: true });
             ctx.drawImage(img, 0, 0);
             const imageData = ctx.getImageData(0, 0, img.width, img.height);
-            this._applyGroundCompensation(imageData.data, img.width, img.height, shadowCfg.horizon ?? null);
+            this._applyGroundCompensation(imageData.data, img.width, img.height, shadowCfg.horizon ?? null, strength);
             ctx.putImageData(imageData, 0, 0);
             return canvas;
         } catch (e) {

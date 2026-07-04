@@ -47,7 +47,10 @@
             <label class="filebtn secondary">Scene photo (optional)… <input type="file" id="fileScene" accept="image/*"></label>
         </div>
         <div class="sep"></div>
-        <label><b>Ground compensation</b> <input type="checkbox" id="comp" checked></label>
+        <div class="row">
+            <label><b>Ground compensation</b> <output id="compOut">100%</output></label>
+            <input type="range" id="comp" min="0" max="1" step="0.05" value="1">
+        </div>
         <label><b>Auto horizon</b> <input type="checkbox" id="autoHorizon" checked></label>
         <div class="row">
             <label>Horizon line <output id="horizonOut">0.40</output></label>
@@ -120,7 +123,7 @@ function computeGroundRamp(pixels, width, height, horizonFrac) {
     return ramp;
 }
 
-function applyGroundCompensation(pixels, width, height, horizonFrac) {
+function applyGroundCompensation(pixels, width, height, horizonFrac, strength = 1) {
     const ramp = computeGroundRamp(pixels, width, height, horizonFrac);
     // Vertical smoothing: the running-min ramp is a staircase whose steps
     // would survive the subtraction as horizontal bands on the ground.
@@ -134,7 +137,7 @@ function applyGroundCompensation(pixels, width, height, horizonFrac) {
         smoothed[y] = sum / n;
     }
     for (let y = 0; y < height; y++) {
-        const rowRamp = smoothed[y];
+        const rowRamp = smoothed[y] * strength;
         const rowOffset = y * width * 4;
         for (let x = 0; x < width; x++) {
             const i = rowOffset + x * 4;
@@ -145,7 +148,7 @@ function applyGroundCompensation(pixels, width, height, horizonFrac) {
             // ±few-level speckle on the flattened ground. Even one level
             // clears the ray-march threshold at close range and freckles
             // the shadow with false micro-occluders — squash it.
-            if (h < 10) h = 0;
+            if (strength >= 1 && h < 10) h = 0;
             pixels[i] = pixels[i + 1] = pixels[i + 2] = h;
         }
     }
@@ -225,6 +228,10 @@ function imageToData(img, maxW) {
     return { data: ctx.getImageData(0, 0, w, h), w, h };
 }
 
+function compStrength() {
+    return parseFloat($('comp').value);
+}
+
 function currentHorizon() {
     return $('autoHorizon').checked ? null : parseFloat($('horizon').value);
 }
@@ -242,6 +249,7 @@ function scheduleRender() {
 }
 
 function render() {
+    $('compOut').textContent = `${Math.round(compStrength() * 100)}%`;
     $('horizonOut').textContent = parseFloat($('horizon').value).toFixed(2);
     $('elevOut').textContent = `${$('elev').value}°`;
     $('dirOut').textContent = `${$('dir').value}°`;
@@ -254,7 +262,7 @@ function render() {
     const { w, h } = state;
     // Height map: copy of the raw depth, optionally compensated.
     const heightData = new ImageData(new Uint8ClampedArray(state.raw.data), w, h);
-    if ($('comp').checked) applyGroundCompensation(heightData.data, w, h, currentHorizon());
+    if (compStrength() > 0) applyGroundCompensation(heightData.data, w, h, currentHorizon(), compStrength());
     paintImageData($('cvHeight'), heightData, w, h);
 
     // Shadow march on the (possibly compensated) heights.
@@ -300,7 +308,7 @@ function render() {
     octx.putImageData(od, 0, 0);
     ctx.drawImage(ov, 0, 0, cv.width, cv.height);
     drawSunMarker(ctx, cv.width, cv.height);
-    $('download').disabled = !$('comp').checked;
+    $('download').disabled = compStrength() <= 0;
 }
 
 // Discreet sun marker. The card models the sun as a DIRECTIONAL light
@@ -348,8 +356,9 @@ function drawSunMarker(ctx, w, h) {
 
 function updateYaml() {
     const lines = ['shadow:', '  depthmap: /local/my-depthmap.png'];
-    if ($('comp').checked) {
-        lines.push('  ground_compensation: true');
+    const strength = compStrength();
+    if (strength > 0) {
+        lines.push(strength >= 1 ? '  ground_compensation: true' : `  ground_compensation: ${strength.toFixed(2)}`);
         if (!$('autoHorizon').checked) lines.push(`  horizon: ${parseFloat($('horizon').value).toFixed(2)}`);
     }
     const gain = parseFloat($('gain').value);
@@ -395,7 +404,7 @@ $('download').addEventListener('click', () => {
     const ctx = cv.getContext('2d', { willReadFrequently: true });
     ctx.drawImage(img, 0, 0);
     const full = ctx.getImageData(0, 0, img.width, img.height);
-    applyGroundCompensation(full.data, img.width, img.height, currentHorizon());
+    applyGroundCompensation(full.data, img.width, img.height, currentHorizon(), compStrength());
     ctx.putImageData(full, 0, 0);
     const a = document.createElement('a');
     a.download = 'depthmap-compensated.png';

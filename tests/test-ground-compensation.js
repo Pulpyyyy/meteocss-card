@@ -134,6 +134,19 @@ const lum = (px, x, y) => px[(y * W + x) * 4];
     assert('wall still tall despite the noise floor', lum(px, 6, 35) >= 150, `got ${lum(px, 6, 35)}`);
 }
 
+// --- Partial strength: doses the subtraction, keeps some ground relief ---
+{
+    const px = buildScene();
+    card._applyGroundCompensation(px, W, H, null, 0.5);
+    const g70 = groundAt(70);
+    const residual = lum(px, 15, 70);
+    assert('50% strength leaves ~half the ground ramp',
+        Math.abs(residual - g70 / 2) <= 3, `ground=${g70} residual=${residual}`);
+    const wallBase = lum(px, 6, 98);
+    assert('wall keeps more height at partial strength',
+        Math.abs(wallBase - (200 - groundAt(98) / 2)) <= 3, `got ${wallBase}`);
+}
+
 // --- _prepareDepthSource plumbing ---
 {
     const img = { width: W, height: H };

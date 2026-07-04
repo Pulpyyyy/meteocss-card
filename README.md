@@ -475,7 +475,7 @@ elements:
 | `depth_exp` | `1.0` | Gamma applied to the depth map heights — >1 exaggerates tall elements, <1 flattens the relief |
 | `depth_gain` | `1.15` | Multiplier applied to the depth map heights |
 | `normal_strength` | `0.45` | Amount of slope-based relighting mixed in (0 = cast shadows only, 1 = full relief shading) |
-| `ground_compensation` | `false` | Convert camera-proximity (ML depth) into height above ground by subtracting the estimated ground ramp — stops flat ground from self-shadowing |
+| `ground_compensation` | `false` | Convert camera-proximity (ML depth) into height above ground by subtracting the estimated ground ramp — stops flat ground from self-shadowing. `true` = full, or a `0..1` strength for partial compensation |
 | `horizon` | `null` | Optional horizon line (0 = top, 1 = bottom of the image) used by `ground_compensation` when the automatic estimate gets it wrong |
 
 ---
