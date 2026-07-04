@@ -90,7 +90,9 @@ const lum = (px, x, y) => px[(y * W + x) * 4];
     assert('wall height grows toward its top', top > mid && mid > base, `top=${top} mid=${mid} base=${base}`);
     assert('wall top keeps a strong height', top >= 150, `got ${top}`);
 
-    assert('transparent sky untouched', lum(px, 15, 5) === 123 && px[(5 * W + 15) * 4 + 3] === 0);
+    // Erased sky keeps bright RGB in the source: it must be neutralized or
+    // the ray-march (which ignores alpha) sees an invisible occluder.
+    assert('transparent sky neutralized (rgb 0, alpha 0)', lum(px, 15, 5) === 0 && px[(5 * W + 15) * 4 + 3] === 0);
     assert('far field reduced by the far ramp', lum(px, 15, 20) <= 10);
 }
 

@@ -2398,7 +2398,13 @@ class MeteoCard extends HTMLElement {
             const rowOffset = y * width * 4;
             for (let x = 0; x < width; x++) {
                 const i = rowOffset + x * 4;
-                if (pixels[i + 3] < 25) continue;
+                if (pixels[i + 3] < 25) {
+                    // The ray-march samples RGB regardless of alpha: erased sky
+                    // often keeps bright RGB and becomes an invisible occluder
+                    // towering over the compensated heights — neutralize it.
+                    pixels[i] = pixels[i + 1] = pixels[i + 2] = 0;
+                    continue;
+                }
                 const lum = 0.3 * pixels[i] + 0.59 * pixels[i + 1] + 0.11 * pixels[i + 2];
                 let h = Math.max(0, Math.min(255, Math.round(lum - rowRamp)));
                 // Quantization noise floor: palettized/8-bit depth maps leave a
