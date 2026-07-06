@@ -1096,6 +1096,11 @@ class MeteoCard extends HTMLElement {
     }
 
     setConfig(config) {
+        // Structural validation first, OUTSIDE the try/catch: a thrown error
+        // here is caught by Lovelace, which shows an explicit red error card —
+        // the HA convention for invalid YAML. Anything past this point is
+        // runtime data and stays handled defensively (console.error).
+        this._validateConfig(config);
         try {
             if (!this._cardId) {
                 this._cardId = 'card_' + _genId();
@@ -1202,6 +1207,44 @@ class MeteoCard extends HTMLElement {
 
         } catch (e) {
             console.error('[MeteoCard] setConfig:', e);
+        }
+    }
+
+    // Rejects structurally invalid YAML with a thrown Error (rendered by
+    // Lovelace as an error card). Tolerant on purpose beyond types: unknown
+    // layer names only warn (forward compatibility, and a trailing "-" in a
+    // YAML list yields a null entry that has always been skipped silently).
+    _validateConfig(config) {
+        if (config === null || config === undefined || typeof config !== 'object' || Array.isArray(config)) {
+            throw new Error('meteocss-card: configuration must be a YAML object');
+        }
+        const stringKeys = ['weather', 'sun_entity', 'moon_azimuth_entity', 'moon_elevation_entity',
+            'moon_phase_entity', 'moon_degrees_entity', 'singleton_id'];
+        for (const key of stringKeys) {
+            if (config[key] !== undefined && config[key] !== null && typeof config[key] !== 'string') {
+                throw new Error(`meteocss-card: "${key}" must be a string (entity id)`);
+            }
+        }
+        if (config.layers !== undefined && config.layers !== null) {
+            if (!Array.isArray(config.layers)) {
+                throw new Error('meteocss-card: "layers" must be a list');
+            }
+            const known = ['sky', 'sun', 'moon', 'shadow', 'background', 'foreground'];
+            for (const l of config.layers) {
+                if (l === null || l === '') continue; // trailing "-" in YAML
+                if (typeof l !== 'string') {
+                    throw new Error('meteocss-card: every entry of "layers" must be a string');
+                }
+                if (!known.includes(l) && !l.startsWith('demo_mode')) {
+                    console.warn(`[MeteoCard] unknown layer "${l}" ignored (known: ${known.join(', ')}, demo_mode*)`);
+                }
+            }
+        }
+        for (const key of ['orbit', 'sun', 'moon', 'clouds', 'fog', 'shadow', 'colors', 'conditions']) {
+            const val = config[key];
+            if (val !== undefined && val !== null && (typeof val !== 'object' || Array.isArray(val))) {
+                throw new Error(`meteocss-card: "${key}" must be an object`);
+            }
         }
     }
 
