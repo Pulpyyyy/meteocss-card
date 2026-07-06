@@ -1,4 +1,5 @@
 {
   "name": "MeteoCSS Card",
+  "filename": "meteocss-card.js",
   "homeassistant": "2026.6.0"
 }

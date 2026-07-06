@@ -23,3 +23,15 @@ jobs:
 
       - name: Run regression suite
         run: node tests/run-all.js
+
+  hacs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: HACS validation
+        uses: hacs/action@main
+        with:
+          category: plugin
