@@ -2,6 +2,37 @@ const CARD_VERSION = "3.2.0";
 
 console.info(`%c 🙂 MeteoCSS Card %c v${CARD_VERSION}%c`, "background:#2196F3;color:white;padding:2px 8px;border-radius:3px 0 0 3px;font-weight:bold", "background:#4CAF50;color:white;padding:2px 8px;border-radius:0 3px 3px 0", "background:none");
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * FILE LAYOUT — one class per concern, then the MeteoCard custom element.
+ *
+ *   SingletonManager ....... shared state + master election between instances
+ *   DemoEngine ............. synthetic 24h weather cycle (demo / preview mode)
+ *   MeteoCoordsCalculator .. azimuth/elevation → CSS % position on the card
+ *   EntityValidator ........ defensive validation of raw HA entities
+ *   MeteoState ............. normalized weather-state DTO for the renderers
+ *   MeteoConfig ............ built-in defaults deep-merged with YAML config
+ *   SharedAnimationLoop .... single rAF loop shared by all slave cards
+ *   SharedEditModePoller ... single 2s edit-mode fallback poller
+ *
+ *   MeteoCard .............. the <meteo-card> element, organized in sections:
+ *     SETUP & CONFIG         constructor, hass intake, setConfig
+ *     SLAVE SYNC             registration in the shared rAF loop
+ *     DOM LIFECYCLE          connected/disconnected, edit-mode re-render
+ *     ROLE ELECTION          demo-UI master & data master
+ *     LOVELACE API           sizing, stub config for the card picker
+ *     CLEANUP                listeners, caches, teardown
+ *     DEMO LOOP              master card drives DemoEngine at rAF rate
+ *     UPDATE PIPELINE        state intake → full render or dynamic update
+ *     RENDERING              DOM (re)build + per-frame DOM mutations
+ *     SHADOW ENGINE          WebGL ray-marched shadows from a depth map
+ *     DEMO UI                stats panel, play/pause/stop controls
+ *     SVG & PARTICLES        sun, moon, lens flare, clouds, rain, snow, fog
+ *     HELPERS                small pure utilities
+ *     STYLES                 static stylesheet + conditional keyframes
+ *
+ * Jump to a section by searching "SECTION: <name>".
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
 const _genId = () => {
     try {
         // 122 bits of randomness, universally unique — preferred over Math.random().
@@ -872,6 +903,11 @@ class SharedEditModePoller {
  * from the HA theme.
  */
 class MeteoCard extends HTMLElement {
+
+    /* ════════════════════════════════════════════════════════════════════
+     * SECTION: SETUP & CONFIG — constructor, hass intake, setConfig
+     * ════════════════════════════════════════════════════════════════════ */
+
     constructor() {
         super();
         this._cardId = 'meteo-' + _genId();
@@ -1169,6 +1205,10 @@ class MeteoCard extends HTMLElement {
         }
     }
 
+    /* ════════════════════════════════════════════════════════════════════
+     * SECTION: SLAVE SYNC — registration in the shared rAF loop
+     * ════════════════════════════════════════════════════════════════════ */
+
     _startSlaveListener() {
         if (this._slaveListenerRequest) {
             cancelAnimationFrame(this._slaveListenerRequest);
@@ -1219,6 +1259,10 @@ class MeteoCard extends HTMLElement {
             console.error('[MeteoCard] _updateOptimized:', e);
         }
     }
+
+    /* ════════════════════════════════════════════════════════════════════
+     * SECTION: DOM LIFECYCLE — connected/disconnected, edit-mode re-render
+     * ════════════════════════════════════════════════════════════════════ */
 
     connectedCallback() {
         try {
@@ -1414,6 +1458,10 @@ class MeteoCard extends HTMLElement {
         }
     }
 
+    /* ════════════════════════════════════════════════════════════════════
+     * SECTION: ROLE ELECTION — demo-UI master & data master
+     * ════════════════════════════════════════════════════════════════════ */
+
     // Synchronises this card's demo-UI-master role with the singleton's
     // election state: promotes it (creating the engine and starting the demo)
     // or demotes it. Returns true when the card just became master.
@@ -1452,6 +1500,10 @@ class MeteoCard extends HTMLElement {
         }
     }
 
+    /* ════════════════════════════════════════════════════════════════════
+     * SECTION: LOVELACE API — sizing, stub config for the card picker
+     * ════════════════════════════════════════════════════════════════════ */
+
     getCardSize() {
         return 6;
     }
@@ -1486,6 +1538,10 @@ class MeteoCard extends HTMLElement {
             layers: ['sky', 'sun', 'moon', 'background', 'foreground']
         };
     }
+
+    /* ════════════════════════════════════════════════════════════════════
+     * SECTION: CLEANUP — listeners, caches, teardown
+     * ════════════════════════════════════════════════════════════════════ */
 
     _cleanup() {
         this._stopSlaveListener();
@@ -1525,6 +1581,19 @@ class MeteoCard extends HTMLElement {
         this._demoListenersBound = false;
     }
 
+    _cleanupEvents() {
+        this._demoListeners.forEach(({
+            el,
+            ev,
+            fn
+        }) => {
+            if (el && typeof el.removeEventListener === 'function') {
+                el.removeEventListener(ev, fn);
+            }
+        });
+        this._demoListeners = [];
+    }
+
     _clearDOMCache() {
         Object.keys(this._domCache).forEach(key => {
             this._domCache[key] = null;
@@ -1538,6 +1607,10 @@ class MeteoCard extends HTMLElement {
             shadowCanvas: null
         };
     }
+
+    /* ════════════════════════════════════════════════════════════════════
+     * SECTION: DEMO LOOP — master card drives DemoEngine at rAF rate
+     * ════════════════════════════════════════════════════════════════════ */
 
     _startDemo() {
         this._stopDemo();
@@ -1618,13 +1691,9 @@ class MeteoCard extends HTMLElement {
         }
     }
 
-    _safe(text) {
-        // Escape HTML to prevent XSS when inserting dynamic strings into innerHTML.
-        if (text === null || text === undefined) return '?';
-        const div = document.createElement('div');
-        div.textContent = String(text);
-        return div.innerHTML;
-    }
+    /* ════════════════════════════════════════════════════════════════════
+     * SECTION: UPDATE PIPELINE — state intake → full render or dynamic update
+     * ════════════════════════════════════════════════════════════════════ */
 
     _update() {
         try {
@@ -1745,6 +1814,31 @@ class MeteoCard extends HTMLElement {
         }
     }
 
+    _calculateMoonCoordinates(sunAzimuth, sunElevation, hass) {
+        // Default: place the moon opposite the sun on the celestial sphere.
+        // Overridden by real sensor data when moon entities are available.
+        let moonAz = (sunAzimuth + 180) % 360;
+        let moonEl = -sunElevation;
+
+        const moonAzEntity = hass?.states?.[this._moonAzimuthEntityId];
+        const moonElEntity = hass?.states?.[this._moonElevationEntityId];
+
+        if (moonAzEntity?.state && moonElEntity?.state) {
+            const parsedAz = parseFloat(moonAzEntity.state);
+            const parsedEl = parseFloat(moonElEntity.state);
+
+            if (!isNaN(parsedAz) && !isNaN(parsedEl)) {
+                moonAz = parsedAz;
+                moonEl = parsedEl;
+            }
+        }
+
+        return {
+            moonAz,
+            moonEl
+        };
+    }
+
     _updateDynamic(state) {
         try {
             if (!this.content) {
@@ -1846,117 +1940,9 @@ class MeteoCard extends HTMLElement {
         }
     }
 
-    _updateDemoUI() {
-        const sharedState = SingletonManager.getSingleton(this._singletonId);
-        const demoState = SingletonManager.getDemoState(this._singletonId);
-        const isRunning = demoState === 'running';
-
-        const statsContainer = this._demoCacheStats || this.shadowRoot.querySelector('.demo-stats-inner');
-        if (statsContainer) {
-            if (!statsContainer.firstChild) {
-                // First paint: full build.
-                statsContainer.innerHTML = this._demoUI();
-            } else {
-                // Subsequent updates: mutate only the value spans — no HTML reparse.
-                const set = (key, val) => {
-                    const el = statsContainer.querySelector(`[data-stat="${key}"]`);
-                    if (el && el.textContent !== val) el.textContent = val;
-                };
-                const s  = SingletonManager.getSingleton(this._singletonId);
-                const sh = s.actualState || {};
-                set('state',   s.demoState.toUpperCase());
-                set('time',    this._formatTime(sh.simulatedHour || 0));
-                set('weather', (sh.condition || '').toUpperCase());
-                set('wind',    `${(sh.windSpeed || 0).toFixed(1)} km/h`);
-                set('sun',     `${(sh.sunPos?.elevation || 0).toFixed(1)}° | ${(sh.sunPos?.azimuth || 0).toFixed(1)}°`);
-                set('moon',    `${(sh.moonPos?.elevation || 0).toFixed(1)}° | ${(sh.moonPos?.azimuth || 0).toFixed(1)}°`);
-                // textContent assignment — no HTML escaping needed (escaping
-                // here would double-encode entities like '&').
-                set('phase',   `${sh.moonPhase ?? '?'} | ${(sh.moonPhaseDegrees || 0).toFixed(1)}°`);
-                set('clouds',  `BG: ${s.bgCloudCount || 0} FG: ${s.fgCloudCount || 0}`);
-                const _slaves  = SingletonManager.getSlaveCount(this._singletonId);
-                const _masters = SingletonManager.getCardCount(this._singletonId) - _slaves;
-                set('cards',   `👑 ${_masters} / 👷 ${_slaves}`);
-            }
-        }
-
-        const btn = this._demoCacheBtn || this.shadowRoot.querySelector('#btn-toggle-demo');
-        if (btn) {
-            const newText = isRunning ? '⏸ Pause' : '▶ Play';
-            const newClass = isRunning ? 'btn-pause' : 'btn-play';
-            btn.textContent = newText;
-            btn.classList.remove('btn-play', 'btn-pause');
-            btn.classList.add(newClass);
-        }
-
-        const select = this._demoCacheSelect || this.shadowRoot.querySelector('#select-demo-condition');
-        if (select) {
-            select.value = sharedState.demoForcedCondition || 'auto';
-        }
-    }
-
-    _injectKeyframesForCondition(condition, isNight) {
-        const cacheKey = `${condition}:${isNight ? 1 : 0}`;
-        if (this._loadedKeyframes === cacheKey) return;
-        this._loadedKeyframes = cacheKey;
-
-        // Travel distances use the card's own dimensions (--meteo-w/--meteo-h,
-        // published by _updateSizeVars) so clouds/rain/snow spend their whole
-        // cycle inside the card instead of crossing the viewport mostly
-        // off-card. Viewport units remain as fallbacks until first layout.
-        const keyframes = {
-            base: `@keyframes to-right { to { transform:translateX(calc(var(--meteo-w, 100vw) + 500px)); } } @keyframes flash { 0%,90%,94%,100%{opacity:0;} 92%{opacity:0.4;} } @keyframes puff-drift { 0% { transform:translateX(calc(var(--pdrift) * -1)); } 100% { transform:translateX(var(--pdrift)); } }`,
-            star: `@keyframes star { 0%,100%{opacity:1;} 50%{opacity:0.2;} }`,
-            shot: `@keyframes shot { 0%{transform:rotate(45deg) translateX(-200px);opacity:0;} 1%{opacity:1;} 10%{transform:rotate(45deg) translateX(1200px);opacity:0;} 100%{opacity:0;} }`,
-            rain: `@keyframes rain-fall { to { transform:translateY(calc(var(--meteo-h, 100vh) * 1.1)) skewX(-15deg); } }`,
-            snow: `@keyframes snow-fall { 0% { transform: translateY(calc(var(--meteo-h, 100vh) * -0.1)); } 100% { transform: translateY(calc(var(--meteo-h, 100vh) * 1.1)); } } @keyframes snow-sway { 0% { transform: translateX(calc(var(--sway) * -1)); } 100% { transform: translateX(var(--sway)); } }`,
-            fog: `@keyframes fog-boil { 0% { transform: scale(1) translateY(0); opacity: var(--fog-opacity-min); } 50% { opacity: var(--fog-opacity-max); } 100% { transform: scale(1.15) translateY(-20px); opacity: var(--fog-opacity-min); } }`
-        };
-
-        const conf = this._meteoConfig.get(`conditions.${condition}`) || this._meteoConfig.get('conditions.default');
-        const neededParts = new Set(['base']);
-
-        if (isNight && conf.stars) { neededParts.add('star'); neededParts.add('shot'); }
-        if (conf.drops) neededParts.add('rain');
-        if (conf.flakes) neededParts.add('snow');
-        if (conf.fog) neededParts.add('fog');
-
-        let requiredKeyframes = '';
-        for (const part of neededParts) requiredKeyframes += keyframes[part];
-
-        if (!this._keyframesSheet) {
-            this._keyframesSheet = document.createElement('style');
-            this._keyframesSheet.id = 'meteo-keyframes';
-            this.shadowRoot.appendChild(this._keyframesSheet);
-        }
-
-        this._keyframesSheet.textContent = requiredKeyframes;
-    }
-
-    _calculateMoonCoordinates(sunAzimuth, sunElevation, hass) {
-        // Default: place the moon opposite the sun on the celestial sphere.
-        // Overridden by real sensor data when moon entities are available.
-        let moonAz = (sunAzimuth + 180) % 360;
-        let moonEl = -sunElevation;
-
-        const moonAzEntity = hass?.states?.[this._moonAzimuthEntityId];
-        const moonElEntity = hass?.states?.[this._moonElevationEntityId];
-
-        if (moonAzEntity?.state && moonElEntity?.state) {
-            const parsedAz = parseFloat(moonAzEntity.state);
-            const parsedEl = parseFloat(moonElEntity.state);
-
-            if (!isNaN(parsedAz) && !isNaN(parsedEl)) {
-                moonAz = parsedAz;
-                moonEl = parsedEl;
-            }
-        }
-
-        return {
-            moonAz,
-            moonEl
-        };
-    }
+    /* ════════════════════════════════════════════════════════════════════
+     * SECTION: RENDERING — DOM (re)build + per-frame DOM mutations
+     * ════════════════════════════════════════════════════════════════════ */
 
     _updateSharedState(state) {
         const sharedState = SingletonManager.getSingleton(this._singletonId);
@@ -2220,19 +2206,6 @@ class MeteoCard extends HTMLElement {
         }
     }
 
-    _cleanupEvents() {
-        this._demoListeners.forEach(({
-            el,
-            ev,
-            fn
-        }) => {
-            if (el && typeof el.removeEventListener === 'function') {
-                el.removeEventListener(ev, fn);
-            }
-        });
-        this._demoListeners = [];
-    }
-
     _renderLayer(layer, condition, isNight, sunPos, moonPos, moonPhase, rising, css, windSpeed, cond) {
         try {
             if (layer === 'sky') {
@@ -2309,6 +2282,10 @@ class MeteoCard extends HTMLElement {
             return '';
         }
     }
+
+    /* ════════════════════════════════════════════════════════════════════
+     * SECTION: SHADOW ENGINE — WebGL ray-marched shadows from a depth map
+     * ════════════════════════════════════════════════════════════════════ */
 
     _resolveTemplate(value, callback) {
         const isTemplate = value && (value.includes('{{') || value.includes('{%'));
@@ -2870,6 +2847,10 @@ class MeteoCard extends HTMLElement {
         this._shadowInitTimer = null;
     }
 
+    /* ════════════════════════════════════════════════════════════════════
+     * SECTION: DEMO UI — stats panel, play/pause/stop controls
+     * ════════════════════════════════════════════════════════════════════ */
+
     _createStatRow(label, value, statKey = '') {
         const attr = statKey ? ` data-stat="${statKey}"` : '';
         return `<div class="stat-row"><span class="stat-label">${label}</span><span class="stat-value"${attr}>${value}</span></div>`;
@@ -2905,6 +2886,55 @@ class MeteoCard extends HTMLElement {
     ${this._createStatRow('Limits:', sunLimitsStr, 'limits')}
     ${this._createStatRow('Cards:', `👑 ${masterCount} / 👷 ${slaveCount}`, 'cards')}
         `.trim();
+    }
+
+    _updateDemoUI() {
+        const sharedState = SingletonManager.getSingleton(this._singletonId);
+        const demoState = SingletonManager.getDemoState(this._singletonId);
+        const isRunning = demoState === 'running';
+
+        const statsContainer = this._demoCacheStats || this.shadowRoot.querySelector('.demo-stats-inner');
+        if (statsContainer) {
+            if (!statsContainer.firstChild) {
+                // First paint: full build.
+                statsContainer.innerHTML = this._demoUI();
+            } else {
+                // Subsequent updates: mutate only the value spans — no HTML reparse.
+                const set = (key, val) => {
+                    const el = statsContainer.querySelector(`[data-stat="${key}"]`);
+                    if (el && el.textContent !== val) el.textContent = val;
+                };
+                const s  = SingletonManager.getSingleton(this._singletonId);
+                const sh = s.actualState || {};
+                set('state',   s.demoState.toUpperCase());
+                set('time',    this._formatTime(sh.simulatedHour || 0));
+                set('weather', (sh.condition || '').toUpperCase());
+                set('wind',    `${(sh.windSpeed || 0).toFixed(1)} km/h`);
+                set('sun',     `${(sh.sunPos?.elevation || 0).toFixed(1)}° | ${(sh.sunPos?.azimuth || 0).toFixed(1)}°`);
+                set('moon',    `${(sh.moonPos?.elevation || 0).toFixed(1)}° | ${(sh.moonPos?.azimuth || 0).toFixed(1)}°`);
+                // textContent assignment — no HTML escaping needed (escaping
+                // here would double-encode entities like '&').
+                set('phase',   `${sh.moonPhase ?? '?'} | ${(sh.moonPhaseDegrees || 0).toFixed(1)}°`);
+                set('clouds',  `BG: ${s.bgCloudCount || 0} FG: ${s.fgCloudCount || 0}`);
+                const _slaves  = SingletonManager.getSlaveCount(this._singletonId);
+                const _masters = SingletonManager.getCardCount(this._singletonId) - _slaves;
+                set('cards',   `👑 ${_masters} / 👷 ${_slaves}`);
+            }
+        }
+
+        const btn = this._demoCacheBtn || this.shadowRoot.querySelector('#btn-toggle-demo');
+        if (btn) {
+            const newText = isRunning ? '⏸ Pause' : '▶ Play';
+            const newClass = isRunning ? 'btn-pause' : 'btn-play';
+            btn.textContent = newText;
+            btn.classList.remove('btn-play', 'btn-pause');
+            btn.classList.add(newClass);
+        }
+
+        const select = this._demoCacheSelect || this.shadowRoot.querySelector('#select-demo-condition');
+        if (select) {
+            select.value = sharedState.demoForcedCondition || 'auto';
+        }
     }
 
     _createPersistentDemoControls() {
@@ -3023,6 +3053,10 @@ class MeteoCard extends HTMLElement {
 
         this._demoListenersBound = true;
     }
+
+    /* ════════════════════════════════════════════════════════════════════
+     * SECTION: SVG & PARTICLES — sun, moon, lens flare, clouds, rain, snow, fog
+     * ════════════════════════════════════════════════════════════════════ */
 
     _sunSVG() {
         if (this._sunSVGCache) return this._sunSVGCache;
@@ -3323,6 +3357,10 @@ class MeteoCard extends HTMLElement {
         }
     }
 
+    /* ════════════════════════════════════════════════════════════════════
+     * SECTION: HELPERS — small pure utilities
+     * ════════════════════════════════════════════════════════════════════ */
+
     // Returns the CSS z-index for a named layer.
     // sky(1) < background(2) < shadow(3) < moon(4) < sun(5) < foreground(500) < demo_mode(9999).
     // The large gap before foreground ensures rain/snow/fog always render above all celestial layers.
@@ -3338,6 +3376,14 @@ class MeteoCard extends HTMLElement {
             'foreground': 500,
             'demo_mode': 9999
         } [layerStr] || 2;
+    }
+
+    _safe(text) {
+        // Escape HTML to prevent XSS when inserting dynamic strings into innerHTML.
+        if (text === null || text === undefined) return '?';
+        const div = document.createElement('div');
+        div.textContent = String(text);
+        return div.innerHTML;
     }
 
     _formatTime(hour) {
@@ -3384,6 +3430,48 @@ class MeteoCard extends HTMLElement {
         // must not force the night-sky config; use the sun state to decide.
         if (s.includes('clear')) return (s.includes('night') || isNight) ? 'clear-night' : 'sunny';
         return 'sunny';
+    }
+
+    /* ════════════════════════════════════════════════════════════════════
+     * SECTION: STYLES — static stylesheet + conditional keyframes
+     * ════════════════════════════════════════════════════════════════════ */
+
+    _injectKeyframesForCondition(condition, isNight) {
+        const cacheKey = `${condition}:${isNight ? 1 : 0}`;
+        if (this._loadedKeyframes === cacheKey) return;
+        this._loadedKeyframes = cacheKey;
+
+        // Travel distances use the card's own dimensions (--meteo-w/--meteo-h,
+        // published by _updateSizeVars) so clouds/rain/snow spend their whole
+        // cycle inside the card instead of crossing the viewport mostly
+        // off-card. Viewport units remain as fallbacks until first layout.
+        const keyframes = {
+            base: `@keyframes to-right { to { transform:translateX(calc(var(--meteo-w, 100vw) + 500px)); } } @keyframes flash { 0%,90%,94%,100%{opacity:0;} 92%{opacity:0.4;} } @keyframes puff-drift { 0% { transform:translateX(calc(var(--pdrift) * -1)); } 100% { transform:translateX(var(--pdrift)); } }`,
+            star: `@keyframes star { 0%,100%{opacity:1;} 50%{opacity:0.2;} }`,
+            shot: `@keyframes shot { 0%{transform:rotate(45deg) translateX(-200px);opacity:0;} 1%{opacity:1;} 10%{transform:rotate(45deg) translateX(1200px);opacity:0;} 100%{opacity:0;} }`,
+            rain: `@keyframes rain-fall { to { transform:translateY(calc(var(--meteo-h, 100vh) * 1.1)) skewX(-15deg); } }`,
+            snow: `@keyframes snow-fall { 0% { transform: translateY(calc(var(--meteo-h, 100vh) * -0.1)); } 100% { transform: translateY(calc(var(--meteo-h, 100vh) * 1.1)); } } @keyframes snow-sway { 0% { transform: translateX(calc(var(--sway) * -1)); } 100% { transform: translateX(var(--sway)); } }`,
+            fog: `@keyframes fog-boil { 0% { transform: scale(1) translateY(0); opacity: var(--fog-opacity-min); } 50% { opacity: var(--fog-opacity-max); } 100% { transform: scale(1.15) translateY(-20px); opacity: var(--fog-opacity-min); } }`
+        };
+
+        const conf = this._meteoConfig.get(`conditions.${condition}`) || this._meteoConfig.get('conditions.default');
+        const neededParts = new Set(['base']);
+
+        if (isNight && conf.stars) { neededParts.add('star'); neededParts.add('shot'); }
+        if (conf.drops) neededParts.add('rain');
+        if (conf.flakes) neededParts.add('snow');
+        if (conf.fog) neededParts.add('fog');
+
+        let requiredKeyframes = '';
+        for (const part of neededParts) requiredKeyframes += keyframes[part];
+
+        if (!this._keyframesSheet) {
+            this._keyframesSheet = document.createElement('style');
+            this._keyframesSheet.id = 'meteo-keyframes';
+            this.shadowRoot.appendChild(this._keyframesSheet);
+        }
+
+        this._keyframesSheet.textContent = requiredKeyframes;
     }
 
     _injectStyles() {
