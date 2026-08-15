@@ -155,22 +155,69 @@ const lum = (px, x, y) => px[(y * W + x) * 4];
     assert('disabled: raw image passed through', card._prepareDepthSource(img, {}) === img);
     assert('disabled explicitly: raw image passed through', card._prepareDepthSource(img, { ground_compensation: false }) === img);
 
-    // Enabled: a canvas is produced and the pixel data goes through compensation.
+    // Enabled: the compensated ImageData itself is returned. Uploading the
+    // ImageData to WebGL (instead of putImageData + canvas upload) skips the
+    // premultiplied-alpha round-trip that quantizes the RGB heights of
+    // semi-transparent pixels by more than uBias (false micro-occluders).
     const scene = buildScene();
-    let putBack = null;
+    let putBackCalled = false;
     const fakeCanvas = {
         getContext: () => ({
             drawImage() {},
             getImageData: () => ({ data: scene, width: W, height: H }),
-            putImageData: (imageData) => { putBack = imageData.data; },
+            putImageData: () => { putBackCalled = true; },
         }),
     };
     const origCreate = global.document.createElement;
     global.document.createElement = (tag) => (tag === 'canvas' ? fakeCanvas : origCreate(tag));
     const result = card._prepareDepthSource(img, { ground_compensation: true });
     global.document.createElement = origCreate;
-    assert('enabled: returns the working canvas', result === fakeCanvas);
-    assert('enabled: compensated data written back', putBack === scene && lum(scene, 15, 70) <= 2);
+    assert('enabled: returns the compensated ImageData',
+        result && result.data === scene && lum(scene, 15, 70) <= 2, `got ${result && result.constructor && result.constructor.name}`);
+    assert('enabled: no putImageData (premultiply-lossless path)', !putBackCalled);
+}
+
+// --- Working resolution cap: camera-size maps are downscaled before the
+// synchronous per-pixel passes (the shader samples in UV, full res buys nothing) ---
+{
+    const bigImg = { width: 4096, height: 2048 };
+    let drewAt = null;
+    const fakeCanvas = {
+        getContext: () => ({
+            drawImage(_i, _x, _y, w, h) { drewAt = [w, h]; },
+            getImageData: (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
+        }),
+    };
+    const origCreate = global.document.createElement;
+    global.document.createElement = (tag) => (tag === 'canvas' ? fakeCanvas : origCreate(tag));
+    const result = card._prepareDepthSource(bigImg, { ground_compensation: true });
+    global.document.createElement = origCreate;
+    assert('camera-resolution map capped to 1024 wide', drewAt && drewAt[0] === 1024 && drewAt[1] === 512, `drew ${drewAt}`);
+    assert('capped dimensions become the texture size',
+        result && result.width === 1024 && result.height === 512, `got ${result && result.width}x${result && result.height}`);
+}
+
+// --- depth_exp is baked into the texels (the shader stays linear: pow() used
+// to run per texture tap in the ray-march, ~1000 times per fragment) ---
+{
+    const img = { width: W, height: H };
+    const scene = buildScene();
+    const fakeCanvas = {
+        getContext: () => ({
+            drawImage() {},
+            getImageData: () => ({ data: scene, width: W, height: H }),
+        }),
+    };
+    const origCreate = global.document.createElement;
+    global.document.createElement = (tag) => (tag === 'canvas' ? fakeCanvas : origCreate(tag));
+    const result = card._prepareDepthSource(img, { depth_exp: 2.0 });
+    global.document.createElement = origCreate;
+    const v = groundAt(70); // grayscale texel: luma == v
+    const expected = Math.round(255 * Math.pow(v / 255, 2));
+    assert('depth_exp shapes texels on the CPU',
+        result && lum(scene, 15, 70) === expected, `got ${lum(scene, 15, 70)} expected ${expected}`);
+    assert('identity depth_exp skips processing entirely',
+        card._prepareDepthSource(img, { depth_exp: 1.0 }) === img);
 }
 
 console.log(failures === 0 ? '\nALL TESTS PASSED' : `\n${failures} TEST(S) FAILED`);

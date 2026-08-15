@@ -1,4 +1,7 @@
-// Test for perf fix #6: puff-drift and snow-sway must animate transform,
+// Test for perf fix #6 (and the cloud-filter caching fix): snow-sway must
+// animate transform, cloud puffs must be fully static — any animation inside
+// the filter:url(#cloud-distort) parent would invalidate the cached filter
+// result and re-run the turbulence chain per cloud per frame,
 // not margin-left, and snow must split fall/sway across two elements.
 'use strict';
 const fs = require('fs');
@@ -56,7 +59,7 @@ card._renderAll = MeteoCard.prototype._renderAll.bind(card); // restore for keyf
 // --- Keyframes ---
 card._injectKeyframesForCondition('snowy', false);
 const kf = card._keyframesSheet.textContent;
-assert('keyframes contain puff-drift with translateX', /puff-drift[^}]*translateX/.test(kf));
+assert('puff-drift keyframe removed (static interior keeps the filter cached)', !kf.includes('puff-drift'));
 assert('keyframes contain snow-sway with translateX', /snow-sway[\s\S]*?translateX/.test(kf));
 assert('no margin-left left in keyframes', !kf.includes('margin-left'));
 assert('snow-fall still uses translateY', /snow-fall[\s\S]*?translateY/.test(kf));
@@ -71,10 +74,14 @@ assert('inner flake carries visuals (bg/opacity/blur)', /-snow-flake\{[^}]*backg
 assert('markup nests flake inside wrapper', /<div class="[^"]*-snow" [^>]*><div class="[^"]*-snow-flake"><\/div><\/div>/.test(snowHtml));
 assert('3 flakes generated', (snowHtml.match(/-snow-flake/g) || []).length === 3);
 
-// --- Cloud puffs ---
+// --- Cloud puffs: static inside the filtered parent ---
 const cssClouds = { content: '', shared: new Set() };
 const { html: cloudHtml, count } = card._clouds('normal', cssClouds, false, 25, 1.0);
-assert('clouds generated', count > 0 && cloudHtml.includes('puff-drift'));
+assert('clouds generated', count > 0 && cloudHtml.includes('-puff'));
+assert('puffs carry no animation (would invalidate the parent filter cache)',
+    !cloudHtml.includes('animation') && !cloudHtml.includes('puff-drift'));
+assert('cloud itself still drifts (to-right on the filtered parent is cache-safe)',
+    /animation:to-right/.test(cssClouds.content));
 assert('no margin-left in cloud css', !cssClouds.content.includes('margin-left') && !cloudHtml.includes('margin-left'));
 
 console.log(failures === 0 ? '\nALL TESTS PASSED' : `\n${failures} TEST(S) FAILED`);

@@ -1,7 +1,8 @@
 // Shadow shader construction tests: both quality tiers generated from one
-// template (no fragile String.replace), pow() baked out at the default
-// depth_exp, config-driven depth/relight uniforms, and the physical
-// tan(elevation) occlusion slope.
+// template (no fragile String.replace), a purely linear shader (depth_exp is
+// baked into the texture by _prepareDepthSource, never compiled as pow()),
+// config-driven depth/relight uniforms, and the physical tan(elevation)
+// occlusion slope.
 'use strict';
 const fs = require('fs');
 
@@ -110,15 +111,21 @@ const mkCard = (shadowCfg) => {
     const normalized = normal
         .replace(/32\.0/g, '8.0').replace(/30\.0/g, '16.0').replace('0.1963', '0.7854');
     assert('tiers are the same template modulo constants', normalized === demo);
-    assert('pow() baked out at default depth_exp', !demo.includes('pow(') && !normal.includes('pow('));
+    assert('shader is linear: no pow() at default depth_exp', !demo.includes('pow(') && !normal.includes('pow('));
     assert('occlusion slope is a uniform', demo.includes('dist * uSlope'));
+    // The shader must reject exactly the pixels the CPU compensation
+    // neutralizes (alpha < 25), or flattened-but-visible pixels grow a
+    // shadow fringe along anti-aliased mask edges.
+    assert('discard threshold matches the CPU alpha threshold (25/255)', demo.includes('mask < 0.0980'));
 }
 
-// --- depth_exp != 1 re-enables pow in the generated source ---
+// --- depth_exp != 1: still no pow() — the exponent is baked into the
+// texture once per texel instead of running per ray-march tap ---
 {
     const { sources } = mkCard({ depth_exp: 2.2 });
     const frag = sources.find(s => s.includes('gl_FragColor'));
-    assert('custom depth_exp compiles pow()', frag.includes('pow(max(h, 1e-6), uDepthExp)'));
+    assert('custom depth_exp keeps the shader linear (no pow)', !frag.includes('pow('));
+    assert('no uDepthExp uniform declared', !frag.includes('uDepthExp'));
 }
 
 // --- Config-driven uniforms + tan(elevation) slope ---
@@ -132,7 +139,7 @@ const mkCard = (shadowCfg) => {
     shared.moonPos = { left: 20, top: 70, elevation: -10, azimuth: 0 };
     card._updateShadow();
 
-    assertClose('uDepthExp from config', uniforms.uDepthExp, 2.2);
+    assert('uDepthExp uniform gone (depth_exp lives in the texture)', uniforms.uDepthExp === undefined);
     assertClose('uDepthGain from config', uniforms.uDepthGain, 2.0);
     assertClose('uNormalStrength from config', uniforms.uNormalStrength, 0.8);
     assertClose('uBias from config', uniforms.uBias, 0.004);

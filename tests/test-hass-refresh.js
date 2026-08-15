@@ -138,5 +138,24 @@ renderCalls.length = 0;
 card.hass = makeHass('rainy', 150, 35);
 assert('U4 no render when data unchanged', renderCalls.length, 0);
 
+// --- Update 5: weather integration drops out ('unavailable') ---
+// The condition must stay the last known ('rainy'), NOT flip to 'sunny' (the
+// matrix fallback) — a wall panel must not turn sunny when the source dies.
+// Positions still track the sun.
+card._lastHassUpdate = 0;
+renderCalls.length = 0;
+card.hass = makeHass('unavailable', 160, 40);
+last = renderCalls[renderCalls.length - 1];
+assert('U5 render happened', !!last, true);
+assert('U5 condition holds last known (not sunny)', last?.state.condition, 'rainy');
+assert('U5 sun azimuth still tracks', last?.state.sunPos.azimuth, 160);
+
+// --- Update 6: 'unknown' behaves the same as 'unavailable' ---
+card._lastHassUpdate = 0;
+renderCalls.length = 0;
+card.hass = makeHass('unknown', 170, 45);
+last = renderCalls[renderCalls.length - 1];
+assert('U6 condition still holds last known', last?.state.condition, 'rainy');
+
 console.log(failures === 0 ? '\nALL TESTS PASSED' : `\n${failures} TEST(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

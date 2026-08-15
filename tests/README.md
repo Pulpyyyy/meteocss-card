@@ -27,9 +27,9 @@ ELECTRON_RUN_AS_NODE=1 "C:/Users/<user>/AppData/Local/Programs/Microsoft VS Code
 | `test-resize.js` | Repositionnement soleil/lune au redimensionnement de la carte |
 | `test-condition-fallback.js` | Fallback `conditions.default` dans les chemins de mise à jour dynamique |
 | `test-weather-matrix.js` | Mappings des états météo HA (grêle, neige fondue, windy-variant, clear jour/nuit) |
-| `test-transform-anims.js` | Animations puffs/neige en `transform` (compositor) au lieu de `margin-left` |
+| `test-transform-anims.js` | Neige en `transform` (compositor), puffs statiques dans le parent filtré (cache du filtre nuage) |
 | `test-shadow-skip.js` | Shader d'ombre non relancé à lumière immobile ; redraw sur mouvement/phase lunaire |
-| `test-slave-dirtyflag.js` | Cartes esclaves : skip des frames sans changement d'état + reprise d'élection master |
+| `test-slave-dirtyflag.js` | Cartes esclaves : rendu poussé à la publication (hors démo), rattrapage au retour à l'écran, reprise d'élection master |
 | `test-wind-unit.js` | Conversion de `wind_speed` en km/h selon `wind_speed_unit` |
 | `test-card-relative-anims.js` | Trajectoires nuages/pluie/neige relatives à la carte, vitesses préservées |
 | `test-webgl-contextloss.js` | Récupération de la couche ombre après perte de contexte WebGL |

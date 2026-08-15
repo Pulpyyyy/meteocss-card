@@ -71,6 +71,44 @@ const METEO_SINGLETONS = {};
 // Adopted StyleSheet shared across all instances — created only once.
 let _meteoSharedSheet = null;
 
+// Layer taxonomy — single source of truth for the config validator and the
+// CSS stacking order (_zIdx). demo_mode* variants are matched by prefix.
+// sky(1) < background(2) < shadow(3) < moon(4) < sun(5) < foreground(500) < demo_mode(9999).
+// The large gap before foreground ensures rain/snow/fog always render above all celestial layers.
+// demo_mode sits above everything so the control panel is never obscured.
+const LAYER_Z_INDEX = {
+    'sky': 1,
+    'background': 2,
+    'shadow': 3,
+    'moon': 4,
+    'sun': 5,
+    'foreground': 500,
+    'demo_mode': 9999
+};
+
+// Depth-decoding invariants shared between the CPU ground compensation and
+// the GLSL ray-march (interpolated into the shader source): both sides must
+// decode the same height from the same pixel, bit for bit, or compensated
+// maps stop meaning what the shader thinks they mean.
+const DEPTH_LUMA_R = 0.3, DEPTH_LUMA_G = 0.59, DEPTH_LUMA_B = 0.11;
+const DEPTH_LUMA_GLSL = `vec3(${DEPTH_LUMA_R}, ${DEPTH_LUMA_G}, ${DEPTH_LUMA_B})`;
+// Pixels below this alpha are neither rendered (shader discard) nor kept as
+// occluders (the compensation pass neutralizes them). The two thresholds must
+// stay identical: a pixel visible to the shader but flattened by the CPU pass
+// reads as "deepest ground" and grows a shadow fringe along mask edges.
+const DEPTH_ALPHA_MIN = 25; // 0..255 scale
+
+// Defensive ceiling on config-driven particle counts: a fat-fingered
+// `count: 100000` (or a missing decimal) in YAML would otherwise build that
+// many DOM nodes and freeze the tab. Legitimate scenes use at most a few hundred.
+const MAX_PARTICLES = 2000;
+
+// Shared across all card instances: the prepared depth source (ground-
+// compensated / exponent-baked ImageData) depends only on the depthmap URL +
+// pixel-baked options, so N cards using the same map reuse one copy instead of
+// each decoding and retaining its own (~4MB) version for the element's lifetime.
+const _depthSourceCache = new Map();
+
 /**
  * Manages shared state between multiple MeteoCard instances that belong to the
  * same logical group (identified by a singletonId). Handles demo lifecycle
@@ -97,7 +135,9 @@ class SingletonManager {
                 realDataTimestamp: null,
                 // Monotonic revision of actualState — lets slave cards skip
                 // animation frames when nothing has been published since.
-                stateVersion: 0
+                stateVersion: 0,
+                // Slave callbacks fired on every setActualState (see subscribe).
+                subscribers: new Set()
             };
         }
         return METEO_SINGLETONS[singletonId];
@@ -193,6 +233,37 @@ class SingletonManager {
         const singleton = this.getSingleton(singletonId);
         singleton.actualState = state;
         singleton.stateVersion = (singleton.stateVersion || 0) + 1;
+        this.notifySubscribers(singleton);
+    }
+
+    /**
+     * Push-based slave sync. Outside demo mode the shared state changes at most
+     * once per hass update (throttled to 1 Hz), so polling stateVersion from a
+     * 60 fps rAF loop burned a frame's worth of work 60 times for every real
+     * change. Slaves subscribe here instead and are called only when a new
+     * state is actually published. The demo path keeps the rAF loop: there the
+     * sun genuinely moves every frame, and stale frames are also what lets a
+     * slave detect a vanished master and take over.
+     */
+    static subscribe(singletonId, cb) {
+        const singleton = this.getSingleton(singletonId);
+        (singleton.subscribers || (singleton.subscribers = new Set())).add(cb);
+    }
+
+    static unsubscribe(singletonId, cb) {
+        METEO_SINGLETONS[singletonId]?.subscribers?.delete(cb);
+    }
+
+    static notifySubscribers(singleton) {
+        if (!singleton.subscribers) return;
+        // Snapshot: a subscriber that re-renders may unsubscribe mid-iteration.
+        for (const cb of Array.from(singleton.subscribers)) {
+            try {
+                cb();
+            } catch (e) {
+                console.error('[SingletonManager] subscriber error:', e);
+            }
+        }
     }
 
     static registerCard(singletonId, cardId) {
@@ -718,7 +789,11 @@ class MeteoConfig {
                 night_sky: 'normal'
             }
         },
-        layers: ['sky', 'sun', 'moon', 'background', 'foreground', 'demo_mode']
+        // demo_mode is intentionally NOT here: it would show the debug/stats
+        // control panel on every default card and make all default cards share
+        // the singleton id 'demo_mode' (they would fight over one shared state).
+        // The demo layer is strictly opt-in — add 'demo_mode' to layers to enable it.
+        layers: ['sky', 'sun', 'moon', 'background', 'foreground']
     };
 
     constructor(yamlConfig = {}) {
@@ -731,13 +806,22 @@ class MeteoConfig {
     _deepMerge(target, source) {
         if (!source) return;
         for (const key in source) {
+            // Never let a config key walk the prototype chain: a YAML/JSON key
+            // named __proto__/constructor/prototype (JSON.parse makes it an own
+            // property) would otherwise pollute Object.prototype process-wide.
+            if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
             if (Object.hasOwn(source, key)) {
                 const sourceVal = source[key];
                 const targetVal = target[key];
                 if (sourceVal !== null && sourceVal !== undefined) {
                     if (typeof sourceVal === 'object' && !Array.isArray(sourceVal) &&
-                        typeof targetVal === 'object' && !Array.isArray(targetVal)) {
+                        typeof targetVal === 'object' && !Array.isArray(targetVal) && targetVal !== null) {
                         this._deepMerge(targetVal, sourceVal);
+                    } else if (sourceVal === false &&
+                        typeof targetVal === 'object' && !Array.isArray(targetVal) && targetVal !== null) {
+                        // `section: false` disables the section: keep the
+                        // defaults (features only activate via layers/depthmap,
+                        // so defaults are equivalent to the section being absent).
                     } else {
                         target[key] = sourceVal;
                     }
@@ -1002,8 +1086,17 @@ class MeteoCard extends HTMLElement {
 
             const now = Date.now();
             if (this._initialized && this._lastHassUpdate && now - this._lastHassUpdate < 1000) {
+                // Leading-edge throttle: coalesce to a trailing apply so the
+                // latest state isn't stranded until some unrelated future hass
+                // event — on a quiet install a dropped condition change would
+                // otherwise never render. this._hass already holds the newest.
+                clearTimeout(this._hassTrailingTimer);
+                this._hassTrailingTimer = setTimeout(() => {
+                    if (this._hass) this.hass = this._hass;
+                }, 1000 - (now - this._lastHassUpdate) + 10);
                 return;
             }
+            clearTimeout(this._hassTrailingTimer);
             this._lastHassUpdate = now;
 
             const newWeatherState = hass.states[this._weatherEntityId]?.state;
@@ -1112,7 +1205,22 @@ class MeteoCard extends HTMLElement {
             const layers = this._meteoConfig.get('layers') || [];
             const demoLayer = layers.find(l => typeof l === 'string' && l.startsWith('demo_mode'));
 
-            this._singletonId = config.singleton_id || demoLayer || this._cardId;
+            // String() covers unquoted YAML numbers (validated as string|number).
+            const prevSingletonId = this._singletonId;
+            this._singletonId = config.singleton_id ? String(config.singleton_id) : (demoLayer || this._cardId);
+            // Re-config with a changed singleton_id (or demo layer): leave the
+            // old group first, otherwise this cardId lingers in its registeredCards
+            // forever — leaking the entry and, worse, keeping the old group's
+            // dead master alive so surviving cards there can never take over.
+            if (prevSingletonId && prevSingletonId !== this._singletonId && this._registeredInSingleton) {
+                SingletonManager.unregisterCard(prevSingletonId, this._cardId);
+                // Same reason: a subscription left on the old group would keep
+                // firing this card from a singleton it no longer belongs to.
+                if (this._slaveSubscription) {
+                    SingletonManager.unsubscribe(prevSingletonId, this._slaveSubscription);
+                }
+                this._registeredInSingleton = false;
+            }
             SingletonManager.getSingleton(this._singletonId);
 
             this._isDemoLayerEnabled = !!demoLayer;
@@ -1201,8 +1309,24 @@ class MeteoCard extends HTMLElement {
                     }
                 };
 
-                setTimeout(retryData, 10);
-                setTimeout(retryData, 100);
+                // Tracked so disconnect can cancel them: an untracked retry
+                // firing after the element is discarded re-creates the singleton
+                // entry it just deleted (getSingleton auto-vivifies), leaking it.
+                this._retryTimers = [setTimeout(retryData, 10), setTimeout(retryData, 100)];
+            } else {
+                // Live YAML edit: Lovelace reuses the element and calls setConfig
+                // on every parseable keystroke. A full re-render re-applies the
+                // build-time options (layer list, CSS, shadow depthmap / ground
+                // compensation / depth_exp), but rebuilding ~300 nodes and
+                // recompiling both ray-march shaders on every keystroke is a jank
+                // storm — debounce so only the settled config triggers the rebuild.
+                clearTimeout(this._reconfigureTimer);
+                this._reconfigureTimer = setTimeout(() => {
+                    const existingState = SingletonManager.getActualState(this._singletonId);
+                    if (existingState) {
+                        this._renderAll(new MeteoState(existingState));
+                    }
+                }, 250);
             }
 
         } catch (e) {
@@ -1212,24 +1336,32 @@ class MeteoCard extends HTMLElement {
 
     // Rejects structurally invalid YAML with a thrown Error (rendered by
     // Lovelace as an error card). Tolerant on purpose beyond types: unknown
-    // layer names only warn (forward compatibility, and a trailing "-" in a
-    // YAML list yields a null entry that has always been skipped silently).
+    // layer names only warn (forward compatibility, a trailing "-" in a
+    // YAML list yields a null entry that has always been skipped silently,
+    // `section: false` disables the section, and a numeric singleton_id —
+    // an unquoted YAML number — is coerced rather than rejected).
     _validateConfig(config) {
         if (config === null || config === undefined || typeof config !== 'object' || Array.isArray(config)) {
             throw new Error('meteocss-card: configuration must be a YAML object');
         }
         const stringKeys = ['weather', 'sun_entity', 'moon_azimuth_entity', 'moon_elevation_entity',
-            'moon_phase_entity', 'moon_degrees_entity', 'singleton_id'];
+            'moon_phase_entity', 'moon_degrees_entity'];
         for (const key of stringKeys) {
-            if (config[key] !== undefined && config[key] !== null && typeof config[key] !== 'string') {
+            if (config[key] != null && typeof config[key] !== 'string') {
                 throw new Error(`meteocss-card: "${key}" must be a string (entity id)`);
             }
         }
-        if (config.layers !== undefined && config.layers !== null) {
+        // A grouping key, not an entity id: numbers are legal YAML here and
+        // worked before validation existed — setConfig coerces them to strings.
+        if (config.singleton_id != null &&
+            typeof config.singleton_id !== 'string' && typeof config.singleton_id !== 'number') {
+            throw new Error('meteocss-card: "singleton_id" must be a string');
+        }
+        if (config.layers != null) {
             if (!Array.isArray(config.layers)) {
                 throw new Error('meteocss-card: "layers" must be a list');
             }
-            const known = ['sky', 'sun', 'moon', 'shadow', 'background', 'foreground'];
+            const known = Object.keys(LAYER_Z_INDEX).filter(k => k !== 'demo_mode');
             for (const l of config.layers) {
                 if (l === null || l === '') continue; // trailing "-" in YAML
                 if (typeof l !== 'string') {
@@ -1242,8 +1374,28 @@ class MeteoCard extends HTMLElement {
         }
         for (const key of ['orbit', 'sun', 'moon', 'clouds', 'fog', 'shadow', 'colors', 'conditions']) {
             const val = config[key];
-            if (val !== undefined && val !== null && (typeof val !== 'object' || Array.isArray(val))) {
-                throw new Error(`meteocss-card: "${key}" must be an object`);
+            // false is the natural YAML way to disable a section — treated as absent.
+            if (val != null && val !== false && (typeof val !== 'object' || Array.isArray(val))) {
+                throw new Error(`meteocss-card: "${key}" must be an object (or false to disable)`);
+            }
+        }
+        // The shadow knobs feed gl.uniform1f and per-pixel math directly: a
+        // non-numeric value would flow through as NaN with no message at all
+        // (black/garbled shadows, silently ignored horizon).
+        if (config.shadow && typeof config.shadow === 'object') {
+            const s = config.shadow;
+            if (s.depthmap != null && typeof s.depthmap !== 'string') {
+                throw new Error('meteocss-card: "shadow.depthmap" must be a string (image URL or template)');
+            }
+            for (const key of ['bias', 'step', 'ambient', 'intensity', 'blur',
+                'depth_exp', 'depth_gain', 'normal_strength', 'horizon']) {
+                if (s[key] != null && (typeof s[key] !== 'number' || !isFinite(s[key]))) {
+                    throw new Error(`meteocss-card: "shadow.${key}" must be a number`);
+                }
+            }
+            const gc = s.ground_compensation;
+            if (gc != null && typeof gc !== 'boolean' && (typeof gc !== 'number' || !isFinite(gc))) {
+                throw new Error('meteocss-card: "shadow.ground_compensation" must be true, false or a 0..1 number');
             }
         }
     }
@@ -1259,15 +1411,31 @@ class MeteoCard extends HTMLElement {
         }
 
         this._isSlaveListening = true;
-        // Only register in the animation loop if the card is currently visible.
-        if (this._isVisible) {
-            SharedAnimationLoop.register(this);
+
+        // Demo mode republishes state every frame, so slaves must be polled
+        // every frame. Outside demo the state moves at hass rate (1 Hz at
+        // most) — subscribing costs nothing while idle instead of running a
+        // permanent 60 fps loop for every card sharing the singleton.
+        if (this._isDemoLayerEnabled) {
+            // Only register in the animation loop if the card is currently visible.
+            if (this._isVisible) {
+                SharedAnimationLoop.register(this);
+            }
+            return;
         }
+
+        if (!this._slaveSubscription) {
+            this._slaveSubscription = () => this._updateOptimized();
+        }
+        SingletonManager.subscribe(this._singletonId, this._slaveSubscription);
     }
 
     _stopSlaveListener() {
         this._isSlaveListening = false;
         SharedAnimationLoop.unregister(this);
+        if (this._slaveSubscription) {
+            SingletonManager.unsubscribe(this._singletonId, this._slaveSubscription);
+        }
         this._slaveListenerRequest = undefined;
     }
 
@@ -1277,6 +1445,14 @@ class MeteoCard extends HTMLElement {
     _updateOptimized() {
         try {
             if (!this.isConnected) {
+                return;
+            }
+
+            // Off-screen subscribers stay subscribed but skip the work. The
+            // state version is deliberately NOT consumed here, so the
+            // visibility observer can replay the update on return instead of
+            // leaving the card frozen on whatever it last painted.
+            if (!this._isVisible) {
                 return;
             }
 
@@ -1391,9 +1567,15 @@ class MeteoCard extends HTMLElement {
             this._isVisible = true;
             this._visibilityObserver = new IntersectionObserver(entries => {
                 this._isVisible = entries[0].isIntersecting;
+                this.classList.toggle('meteo-offscreen', !this._isVisible);
                 if (this._isVisible) {
-                    // Resume slave sync loop.
-                    if (this._isSlaveListening) SharedAnimationLoop.register(this);
+                    // Resume slave sync: the rAF loop in demo mode, a single
+                    // catch-up call otherwise — a subscriber that skipped
+                    // publications while off-screen is up to one state behind.
+                    if (this._isSlaveListening) {
+                        if (this._isDemoLayerEnabled) SharedAnimationLoop.register(this);
+                        else this._updateOptimized();
+                    }
                     // Resume demo master rAF loop if the demo is still running.
                     if (this._isDemoUIMaster && !this._demoRequest &&
                         SingletonManager.getDemoState(this._singletonId) === 'running') {
@@ -1592,6 +1774,12 @@ class MeteoCard extends HTMLElement {
         this._cleanupAllListeners();
         this._cleanupShadow();
         this._clearDOMCache();
+        // Cancel pending timers so they can't fire against a torn-down element
+        // (the retry timers would otherwise re-vivify the deleted singleton).
+        (this._retryTimers || []).forEach(clearTimeout);
+        this._retryTimers = [];
+        clearTimeout(this._reconfigureTimer);
+        clearTimeout(this._hassTrailingTimer);
         this._previousStates = {};
     }
 
@@ -1818,7 +2006,18 @@ class MeteoCard extends HTMLElement {
             if (!weatherEntity || !sunEntity) return null;
 
             const isNight = sunEntity.state === 'below_horizon';
-            const cond = this._weatherMatrix(weatherEntity.state, isNight);
+            // When the weather integration drops out ('unavailable'/'unknown'),
+            // keep the last known condition instead of letting _weatherMatrix
+            // fall through to 'sunny' — a wall panel must not flip to bright
+            // sunshine (at night, no less) just because the source went down.
+            const rawWeather = weatherEntity.state;
+            let cond;
+            if (rawWeather === 'unavailable' || rawWeather === 'unknown') {
+                const last = SingletonManager.getActualState(this._singletonId);
+                cond = last?.condition || this._weatherMatrix(rawWeather, isNight);
+            } else {
+                cond = this._weatherMatrix(rawWeather, isNight);
+            }
 
             const sunAzimuth = parseFloat(sunEntity.attributes?.azimuth) || 0;
             const sunElevation = parseFloat(sunEntity.attributes?.elevation) || 0;
@@ -2305,12 +2504,10 @@ class MeteoCard extends HTMLElement {
                 h += fgHtml;
 
                 if (cond.drops) {
-                    const dropsCount = this._meteoConfig.get(`rain_intensity.${cond.drops}`) || 0;
-                    h += this._rain(dropsCount, css);
+                    h += this._rain(this._particleCount(cond.drops, 'rain_intensity'), css);
                 }
                 if (cond.flakes) {
-                    const flakesCount = this._meteoConfig.get(`snow_intensity.${cond.flakes}`) || 0;
-                    h += this._snow(flakesCount, css);
+                    h += this._snow(this._particleCount(cond.flakes, 'snow_intensity'), css);
                 }
                 if (cond.fog) {
                     const fogCount = Math.ceil(this._meteoConfig.get('fog.count') * (1 - cloudRatio));
@@ -2372,8 +2569,8 @@ class MeteoCard extends HTMLElement {
             const rowOffset = y * width * 4;
             for (let x = 0; x < width; x++) {
                 const i = rowOffset + x * 4;
-                if (pixels[i + 3] < 25) continue;
-                const lum = Math.round(0.3 * pixels[i] + 0.59 * pixels[i + 1] + 0.11 * pixels[i + 2]);
+                if (pixels[i + 3] < DEPTH_ALPHA_MIN) continue;
+                const lum = Math.round(DEPTH_LUMA_R * pixels[i] + DEPTH_LUMA_G * pixels[i + 1] + DEPTH_LUMA_B * pixels[i + 2]);
                 histogram[lum]++;
                 opaque++;
             }
@@ -2418,14 +2615,15 @@ class MeteoCard extends HTMLElement {
             const rowOffset = y * width * 4;
             for (let x = 0; x < width; x++) {
                 const i = rowOffset + x * 4;
-                if (pixels[i + 3] < 25) {
+                if (pixels[i + 3] < DEPTH_ALPHA_MIN) {
                     // The ray-march samples RGB regardless of alpha: erased sky
                     // often keeps bright RGB and becomes an invisible occluder
                     // towering over the compensated heights — neutralize it.
+                    // (The shader discards these same pixels — see DEPTH_ALPHA_MIN.)
                     pixels[i] = pixels[i + 1] = pixels[i + 2] = 0;
                     continue;
                 }
-                const lum = 0.3 * pixels[i] + 0.59 * pixels[i + 1] + 0.11 * pixels[i + 2];
+                const lum = DEPTH_LUMA_R * pixels[i] + DEPTH_LUMA_G * pixels[i + 1] + DEPTH_LUMA_B * pixels[i + 2];
                 let h = Math.max(0, Math.min(255, Math.round(lum - rowRamp)));
                 // Quantization noise floor: palettized/8-bit depth maps leave a
                 // ±few-level speckle on the flattened ground. Even one level
@@ -2438,27 +2636,62 @@ class MeteoCard extends HTMLElement {
         }
     }
 
+    // Applies the depth_exp shaping curve once per texel so the shader stays
+    // linear: pow() used to run per texture tap inside the ray-march loops
+    // (up to ~1000 evaluations per fragment per frame). Grayscales RGB to the
+    // decoded luminance in passing — exactly what the shader's luma dot
+    // product reads anyway, so the result is bit-identical.
+    _applyDepthExponent(pixels, exponent) {
+        // 256-entry LUT: same 8-bit precision as the texture itself.
+        const lut = new Uint8ClampedArray(256);
+        for (let v = 0; v < 256; v++) {
+            lut[v] = Math.round(255 * Math.pow(v / 255, exponent));
+        }
+        for (let i = 0; i < pixels.length; i += 4) {
+            const lum = Math.round(DEPTH_LUMA_R * pixels[i] + DEPTH_LUMA_G * pixels[i + 1] + DEPTH_LUMA_B * pixels[i + 2]);
+            pixels[i] = pixels[i + 1] = pixels[i + 2] = lut[lum];
+        }
+    }
+
     // Returns the texture source for the shadow depth map: the raw image, or
-    // a canvas holding the ground-compensated version.
+    // an ImageData holding the pixel-baked version (ground compensation
+    // and/or depth_exp shaping). ImageData uploads to WebGL without the
+    // premultiplied-alpha round-trip a putImageData/canvas upload forces —
+    // that round-trip quantizes the RGB heights of semi-transparent pixels by
+    // several levels, more than uBias, creating false micro-occluders.
     // shadow.ground_compensation accepts true (full) or a 0..1 strength.
     _prepareDepthSource(img, shadowCfg) {
         const strength = shadowCfg.ground_compensation === true
             ? 1
             : Math.max(0, Math.min(1, Number(shadowCfg.ground_compensation) || 0));
-        if (strength <= 0) return img;
+        // ?? 1.0 is the identity exponent for partial configs (tests, tools),
+        // not a tunable default — that one lives in MeteoConfig.DEFAULTS.
+        const depthExp = shadowCfg.depth_exp ?? 1.0;
+        if (strength <= 0 && depthExp === 1.0) return img;
         try {
+            // Cap the working resolution: the shader only samples the depth
+            // map as a UV texture, so a camera-resolution map buys no visible
+            // detail while multiplying the cost of these synchronous
+            // main-thread per-pixel passes.
+            const scale = Math.min(1, 1024 / Math.max(1, img.width));
+            const w = Math.max(1, Math.round(img.width * scale));
+            const h = Math.max(1, Math.round(img.height * scale));
             const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
+            canvas.width = w;
+            canvas.height = h;
             const ctx = canvas.getContext('2d', { willReadFrequently: true });
-            ctx.drawImage(img, 0, 0);
-            const imageData = ctx.getImageData(0, 0, img.width, img.height);
-            this._applyGroundCompensation(imageData.data, img.width, img.height, shadowCfg.horizon ?? null, strength);
-            ctx.putImageData(imageData, 0, 0);
-            return canvas;
+            ctx.drawImage(img, 0, 0, w, h);
+            const imageData = ctx.getImageData(0, 0, w, h);
+            if (strength > 0) {
+                this._applyGroundCompensation(imageData.data, w, h, shadowCfg.horizon, strength);
+            }
+            if (depthExp !== 1.0) {
+                this._applyDepthExponent(imageData.data, depthExp);
+            }
+            return imageData;
         } catch (e) {
             // A cross-origin depth map taints the canvas: fall back to the raw map.
-            console.warn('[MeteoCard] ground compensation unavailable:', e);
+            console.warn('[MeteoCard] depth map preprocessing unavailable:', e);
             return img;
         }
     }
@@ -2467,7 +2700,7 @@ class MeteoCard extends HTMLElement {
         const canvas = this._domCache.shadowCanvas;
         if (!canvas) return;
 
-        const shadowCfg = this._meteoConfig.get('shadow') || {};
+        const shadowCfg = this._meteoConfig.get('shadow');
         const depthmap = shadowCfg.depthmap;
         if (!depthmap) return;
 
@@ -2512,12 +2745,9 @@ class MeteoCard extends HTMLElement {
         // One template generates both quality tiers: the previous approach
         // (String.replace on the demo source) failed silently when the
         // searched text changed, leaving both programs identical.
-        // depth_exp defaults to 1.0, where pow() is a no-op — the call is
-        // baked out of the shader entirely in that case (it would otherwise
-        // run once per texture tap, up to ~1000 times per pixel).
-        const depthExpr = (shadowCfg.depth_exp ?? 1.0) !== 1.0
-            ? 'pow(max(h, 1e-6), uDepthExp) * uDepthGain'
-            : 'max(h, 1e-6) * uDepthGain';
+        // The shader is purely linear: depth_exp is baked into the texture
+        // once per texel by _prepareDepthSource (pow() would otherwise run
+        // per texture tap, up to ~1000 times per pixel per frame).
         const makeFragmentSource = (dirCount, stepCount) => `
             precision highp float;
             varying vec2 v;
@@ -2531,16 +2761,15 @@ class MeteoCard extends HTMLElement {
             uniform float uStepSize;
             uniform float uSlope;
             uniform int uShadowEnabled;
-            uniform float uDepthExp;
             uniform float uDepthGain;
             uniform float uNormalStrength;
             uniform float uIntensity;
             float shapeDepth(float h){
-                return ${depthExpr};
+                return max(h, 1e-6) * uDepthGain;
             }
             float getDepth(vec2 uv){
                 vec3 d = texture2D(uDepth, uv).rgb;
-                return shapeDepth(dot(d, vec3(0.3, 0.59, 0.11)));
+                return shapeDepth(dot(d, ${DEPTH_LUMA_GLSL}));
             }
             vec3 normalFromDepth(vec2 uv){
                 float hL = getDepth(uv - vec2(uTexel.x, 0.0));
@@ -2554,8 +2783,8 @@ class MeteoCard extends HTMLElement {
             void main(){
                 vec4 depthSample = texture2D(uDepth, v);
                 float mask = depthSample.a;
-                if(mask < 0.01) discard;
-                float hBase = shapeDepth(dot(depthSample.rgb, vec3(0.3, 0.59, 0.11)));
+                if(mask < ${(DEPTH_ALPHA_MIN / 255).toFixed(4)}) discard;
+                float hBase = shapeDepth(dot(depthSample.rgb, ${DEPTH_LUMA_GLSL}));
                 float acc = 0.0;
                 const float samples = ${dirCount}.0;
                 if(uShadowEnabled == 1){
@@ -2649,7 +2878,6 @@ class MeteoCard extends HTMLElement {
                     uStepSize:       gl.getUniformLocation(p, 'uStepSize'),
                     uSlope:          gl.getUniformLocation(p, 'uSlope'),
                     uShadowEnabled:  gl.getUniformLocation(p, 'uShadowEnabled'),
-                    uDepthExp:       gl.getUniformLocation(p, 'uDepthExp'),
                     uDepthGain:      gl.getUniformLocation(p, 'uDepthGain'),
                     uNormalStrength: gl.getUniformLocation(p, 'uNormalStrength'),
                     uLightIntensity: gl.getUniformLocation(p, 'uLightIntensity'),
@@ -2679,11 +2907,10 @@ class MeteoCard extends HTMLElement {
                 i.src = url;
             };
 
-            const onReady = (depthImg) => {
+            const onReady = (depthSource) => {
                 try {
-                    const depthSource = this._prepareDepthSource(depthImg, shadowCfg);
-                    this._shadowTexW = depthImg.width;
-                    this._shadowTexH = depthImg.height;
+                    this._shadowTexW = depthSource.width;
+                    this._shadowTexH = depthSource.height;
                     gl.activeTexture(gl.TEXTURE0);
                     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, depthSource);
                     const shared = SingletonManager.getSingleton(this._singletonId);
@@ -2709,8 +2936,24 @@ class MeteoCard extends HTMLElement {
             this._resolveTemplate(depthmap, (depUrl) => {
                 try {
                     if (!depUrl) return;
-                    loadImage(depUrl, onReady,
-                        (u) => console.error('[MeteoCard] shadow depthmap failed:', u));
+                    // The prepared source only depends on the resolved URL and
+                    // the pixel-baked options; every _renderAll re-runs this
+                    // whole init, so reuse it instead of re-decoding and
+                    // re-compensating the identical image each time (a full
+                    // synchronous per-pixel pipeline). Only the GPU upload
+                    // must repeat (each re-render creates a fresh GL context).
+                    const cacheKey = [depUrl, shadowCfg.ground_compensation,
+                        shadowCfg.horizon, shadowCfg.depth_exp].join('|');
+                    const cached = _depthSourceCache.get(cacheKey);
+                    if (cached) {
+                        onReady(cached);
+                        return;
+                    }
+                    loadImage(depUrl, (depthImg) => {
+                        const source = this._prepareDepthSource(depthImg, shadowCfg);
+                        _depthSourceCache.set(cacheKey, source);
+                        onReady(source);
+                    }, (u) => console.error('[MeteoCard] shadow depthmap failed:', u));
                 } catch (e) {
                     console.error('[MeteoCard] shadow resolve:', e);
                 }
@@ -2772,14 +3015,16 @@ class MeteoCard extends HTMLElement {
             this._shadowWasActive = true;
 
             const u = this._shadowUniforms;
-            const shadowCfg = this._meteoConfig.get('shadow') || {};
-            const bias           = shadowCfg.bias            ?? 0.003;
-            const step           = shadowCfg.step            ?? 0.002;
-            const ambient        = shadowCfg.ambient         ?? 0.2;
-            const intensity      = shadowCfg.intensity       ?? 0.7;
-            const depthExp       = shadowCfg.depth_exp       ?? 1.0;
-            const depthGain      = shadowCfg.depth_gain      ?? 1.15;
-            const normalStrength = shadowCfg.normal_strength ?? 0.45;
+            // Every knob is guaranteed present by MeteoConfig.DEFAULTS (deep-
+            // merged in the constructor) and type-checked by _validateConfig:
+            // the defaults live there and only there.
+            const shadowCfg = this._meteoConfig.get('shadow');
+            const bias           = shadowCfg.bias;
+            const step           = shadowCfg.step;
+            const ambient        = shadowCfg.ambient;
+            const intensity      = shadowCfg.intensity;
+            const depthGain      = shadowCfg.depth_gain;
+            const normalStrength = shadowCfg.normal_strength;
 
             const altRad = lightPos.elevation * Math.PI / 180;
             const len = (90 - lightPos.elevation) / 60;
@@ -2812,7 +3057,6 @@ class MeteoCard extends HTMLElement {
             gl.uniform1f(u.uStepSize, step);
             gl.uniform1f(u.uSlope, slope);
             gl.uniform1i(u.uShadowEnabled, 1);
-            gl.uniform1f(u.uDepthExp, depthExp);
             gl.uniform1f(u.uDepthGain, depthGain);
             gl.uniform1f(u.uNormalStrength, normalStrength);
             gl.uniform1f(u.uLightIntensity, lightIntensity);
@@ -2845,13 +3089,22 @@ class MeteoCard extends HTMLElement {
             const baseH = rect.height > 0 ? rect.height * dpr : ih;
             let factor = isDemo ? 0.5 : 1.0;
             if (!isDemo) {
-                const blur = (this._meteoConfig?.get('shadow') || {}).blur ?? 0;
+                const blur = this._meteoConfig.get('shadow').blur;
                 if (blur > 0) {
                     factor = Math.max(0.5, 1.0 - blur * 0.05);
                 }
             }
-            canvas.width  = Math.round(baseW * factor);
-            canvas.height = Math.round(baseH * factor);
+            // Cap the drawing buffer: the normal tier ray-marches up to 32×30
+            // texture taps per fragment, so an uncapped fullscreen 4K@2dpr canvas
+            // is billions of taps per redraw — a multi-hundred-ms GPU stall that
+            // can trip the context-loss watchdog. 1600px is invisibly sharp here.
+            const MAX_SHADOW_DIM = 1600;
+            let bw = Math.round(baseW * factor);
+            let bh = Math.round(baseH * factor);
+            const over = Math.max(bw, bh) / MAX_SHADOW_DIM;
+            if (over > 1) { bw = Math.round(bw / over); bh = Math.round(bh / over); }
+            canvas.width  = bw;
+            canvas.height = bh;
             gl.viewport(0, 0, canvas.width, canvas.height);
             gl.uniform2f(this._shadowUniforms.uTexel, 1 / iw, 1 / ih);
         }
@@ -3240,7 +3493,7 @@ class MeteoCard extends HTMLElement {
     _clouds(type, css, isNight, windSpeed = 25, ratio = 1.0) {
         try {
             const [nc, pc, gr] = this._meteoConfig.get(`clouds.${type}`) || this._meteoConfig.get('clouds.low');
-            const adjustedNc = Math.ceil(nc * ratio);
+            const adjustedNc = Math.min(Math.max(0, Math.ceil(nc * ratio)), MAX_PARTICLES); // guard config typos
             if (adjustedNc === 0) return { html: '', count: 0 };
 
             const anim = this._meteoConfig.get('clouds.animation');
@@ -3275,18 +3528,22 @@ class MeteoCard extends HTMLElement {
                 const puffBg = `radial-gradient(circle at 35% 30%,rgba(${Math.min(255, bc + 45)},${Math.min(255, bc + 45)},${Math.min(255, bc + 45)},1) 0%,rgba(${bc},${bc},${bc + 10},.8) 50%,rgba(${Math.max(0, bc - 55)},${Math.max(0, bc - 55)},${Math.max(0, bc - 55 + 20)},.4) 100%)`;
                 css.content += `.${id}{position:absolute;top:${tp}%;left:-${cw * 2}px;width:${cw}px;height:${Math.round(bs * 2.2)}px;animation:to-right calc(${dur}s * var(--meteo-wr, 1)) linear infinite;animation-delay:-${delay}s;filter:url(#cloud-distort) blur(5px);opacity:${opacity};mix-blend-mode:${isNight ? 'normal' : 'screen'};z-index:${zIdx};pointer-events:none;--puff-bg:${puffBg}}`;
 
+                // Puffs are intentionally static inside the cloud: the parent
+                // carries filter:url(#cloud-distort), and anything animating
+                // INSIDE a filtered subtree invalidates the browser's cached
+                // filter result — re-running feTurbulence+feDisplacementMap+blur
+                // per cloud per frame, 24/7 in cloudy weather (the card's
+                // dominant GPU cost). With a static interior the filtered cloud
+                // is rasterized once and drifts as a cached texture; only the
+                // internal "breathing" (former puff-drift) is lost.
                 let puffs = '';
                 for (let j = 0; j < pc; j++) {
                     const pw = Math.round(bs * (1.1 + Math.random() * 0.9));
                     const ph = Math.round(pw * 0.9);
                     const pl = Math.round((j * (85 / pc) + Math.random() * 10) * 100) / 100;
                     const pt = Math.round((Math.random() * (bs * 0.4) - bs * 0.2) * 100) / 100;
-                    const driftSign = j % 2 === 0 ? 1 : -1; // alternate with/against wind direction
-                    const driftAmt = driftSign * Math.round(12 + Math.random() * 18); // 12–30px lateral drift
-                    const driftDur = (parseFloat(dur) * (0.35 + Math.random() * 0.3)).toFixed(2);
-                    const driftDelay = (Math.random() * parseFloat(driftDur)).toFixed(2);
 
-                    puffs += `<div class="${this._cardId}-puff" style="width:${pw}px;height:${ph}px;left:${pl}%;top:${pt}px;--pdrift:${driftAmt}px;animation:puff-drift ${driftDur}s linear infinite alternate;animation-delay:-${driftDelay}s"></div>`;
+                    puffs += `<div class="${this._cardId}-puff" style="width:${pw}px;height:${ph}px;left:${pl}%;top:${pt}px"></div>`;
                 }
                 html += `<div class="${id}">${puffs}</div>`;
             }
@@ -3333,6 +3590,7 @@ class MeteoCard extends HTMLElement {
 
     _rain(n, css) {
         try {
+            n = Math.min(Math.max(0, n | 0), MAX_PARTICLES); // guard config typos
             const rainWidth = this._meteoConfig.get('rain_intensity.width');
             const cls = `${this._cardId}-rain`;
             if (!css.shared.has(cls)) {
@@ -3353,6 +3611,7 @@ class MeteoCard extends HTMLElement {
     }
 
     _snow(n, css) {
+        n = Math.min(Math.max(0, n | 0), MAX_PARTICLES); // guard config typos
         const cls = `${this._cardId}-snow`;
         if (!css.shared.has(cls)) {
             css.shared.add(cls);
@@ -3375,6 +3634,7 @@ class MeteoCard extends HTMLElement {
 
     _fog(n, css) {
         try {
+            n = Math.min(Math.max(0, n | 0), MAX_PARTICLES); // guard config typos
             if (n <= 0) return '';
 
             const fogConf = this._meteoConfig.get('fog');
@@ -3404,21 +3664,35 @@ class MeteoCard extends HTMLElement {
      * SECTION: HELPERS — small pure utilities
      * ════════════════════════════════════════════════════════════════════ */
 
-    // Returns the CSS z-index for a named layer.
-    // sky(1) < background(2) < shadow(3) < moon(4) < sun(5) < foreground(500) < demo_mode(9999).
-    // The large gap before foreground ensures rain/snow/fog always render above all celestial layers.
-    // demo_mode sits above everything so the control panel is never obscured.
+    // Returns the CSS z-index for a named layer (see LAYER_Z_INDEX).
     _zIdx(l) {
         const layerStr = typeof l === 'string' ? l : '';
-        return {
-            'sky': 1,
-            'background': 2,
-            'shadow': 3,
-            'moon': 4,
-            'sun': 5,
-            'foreground': 500,
-            'demo_mode': 9999
-        } [layerStr] || 2;
+        return LAYER_Z_INDEX[layerStr] || 2;
+    }
+
+    // Resolves a condition's `drops` / `flakes` into a particle count. Both
+    // forms are accepted: an intensity key from the rain_intensity /
+    // snow_intensity table ("drops: heavy") and a literal count
+    // ("drops: 350") — the latter being the pre-3.x syntax, still found in
+    // configs carried over from earlier versions.
+    // An unresolvable key is a typo, not "no precipitation": warn loudly
+    // instead of silently rendering a dry storm.
+    _particleCount(value, table) {
+        const isNumeric = typeof value === 'number' ||
+            (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value)));
+        if (isNumeric) {
+            const n = Number(value);
+            return n > 0 ? Math.round(n) : 0;
+        }
+
+        const resolved = this._meteoConfig.get(`${table}.${value}`);
+        if (typeof resolved === 'number' && Number.isFinite(resolved)) {
+            return resolved > 0 ? Math.round(resolved) : 0;
+        }
+
+        console.warn(`[MeteoCard] "${value}" is not a key of ${table} and not a number — no particles rendered. ` +
+            `Use one of [${Object.keys(this._meteoConfig.get(table) || {}).filter(k => k !== 'width').join(', ')}] or a count.`);
+        return 0;
     }
 
     _safe(text) {
@@ -3489,7 +3763,7 @@ class MeteoCard extends HTMLElement {
         // cycle inside the card instead of crossing the viewport mostly
         // off-card. Viewport units remain as fallbacks until first layout.
         const keyframes = {
-            base: `@keyframes to-right { to { transform:translateX(calc(var(--meteo-w, 100vw) + 500px)); } } @keyframes flash { 0%,90%,94%,100%{opacity:0;} 92%{opacity:0.4;} } @keyframes puff-drift { 0% { transform:translateX(calc(var(--pdrift) * -1)); } 100% { transform:translateX(var(--pdrift)); } }`,
+            base: `@keyframes to-right { to { transform:translateX(calc(var(--meteo-w, 100vw) + 500px)); } } @keyframes flash { 0%,90%,94%,100%{opacity:0;} 92%{opacity:0.4;} }`,
             star: `@keyframes star { 0%,100%{opacity:1;} 50%{opacity:0.2;} }`,
             shot: `@keyframes shot { 0%{transform:rotate(45deg) translateX(-200px);opacity:0;} 1%{opacity:1;} 10%{transform:rotate(45deg) translateX(1200px);opacity:0;} 100%{opacity:0;} }`,
             rain: `@keyframes rain-fall { to { transform:translateY(calc(var(--meteo-h, 100vh) * 1.1)) skewX(-15deg); } }`,
@@ -3552,6 +3826,20 @@ class MeteoCard extends HTMLElement {
 
             .demo-stats-container { padding: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); }
             .demo-controls-container { display: flex; flex-direction: column; gap: 8px; }
+
+            /* Off-screen: pause every layer animation instead of letting ~300
+               compositor animations keep ticking while the card is scrolled away
+               (the IntersectionObserver toggles .meteo-offscreen on the host). */
+            :host(.meteo-offscreen) .layer-container * { animation-play-state: paused !important; }
+
+            /* Respect the OS reduced-motion setting on all-day dashboards:
+               halt drifting clouds / falling particles / boiling fog and drop
+               the full-card lightning flash (a vestibular trigger). The static
+               sky gradient and sun/moon position updates remain. */
+            @media (prefers-reduced-motion: reduce) {
+                .layer-container * { animation-play-state: paused !important; }
+                .lightning { display: none !important; }
+            }
         `;
 
         // Adopted StyleSheets: a single CSS object shared across all Shadow Roots.

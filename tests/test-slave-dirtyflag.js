@@ -1,6 +1,8 @@
-// Test for perf fix #7: slave cards must skip animation frames while the
-// shared state hasn't changed, re-render on each new publication, and still
-// take over as demo master when the current master vanishes.
+// Test for perf fix #7 (and the push-based slave sync): outside demo mode a
+// slave renders synchronously when the master publishes (no rAF polling),
+// skips redundant frames, defers off-screen publications without consuming
+// the state version (replayed on return), and still takes over as demo
+// master when the current master vanishes (the demo path keeps the rAF loop).
 'use strict';
 const fs = require('fs');
 
@@ -58,7 +60,7 @@ const instrument = (card) => {
     return calls;
 };
 
-// --- Scenario 1: non-demo group, slave skips idle frames ---
+// --- Scenario 1: non-demo group, publication pushes the render to the slave ---
 const card1 = new MeteoCard();
 instrument(card1);
 card1.setConfig({ weather: 'weather.home', sun_entity: 'sun.sun', singleton_id: 'grp', layers: ['sky', 'sun'] });
@@ -66,13 +68,15 @@ card1.setConfig({ weather: 'weather.home', sun_entity: 'sun.sun', singleton_id: 
 const card2 = new MeteoCard();
 const calls2 = instrument(card2);
 card2.setConfig({ weather: 'weather.home', sun_entity: 'sun.sun', singleton_id: 'grp', layers: ['sky', 'sun'] });
-
-card1.hass = makeHass('sunny', 100, 10); // publishes actualState -> version bump
 card2._hass = makeHass('sunny', 100, 10);
 
+// A master's FIRST hass update publishes more than once (the hass setter,
+// _update and _getRealData each publish until realDataReady bootstraps), so
+// the slave is pushed once per publication. Only the follow-up publications
+// (asserted below) are strictly once-per-publication.
 calls2.length = 0;
-card2._updateOptimized();
-assert('S1: first frame renders (new version)', calls2.length, 1);
+card1.hass = makeHass('sunny', 100, 10); // publishes actualState -> subscriber push
+assert('S1: first hass update pushes render(s) to the slave', calls2.length >= 1, true);
 
 calls2.length = 0;
 card2._updateOptimized();
@@ -81,14 +85,26 @@ card2._updateOptimized();
 assert('S1: idle frames skipped (0 renders on 3 frames)', calls2.length, 0);
 
 card1._lastHassUpdate = 0;
-card1.hass = makeHass('sunny', 120, 20); // new publication
 calls2.length = 0;
-card2._updateOptimized();
-assert('S1: renders once after new publication', calls2.length, 1);
+card1.hass = makeHass('sunny', 120, 20); // new publication
+assert('S1: renders once per new publication', calls2.length, 1);
 assert('S1: rendered state carries new azimuth', calls2[0]?.state.sunPos?.azimuth, 120);
 calls2.length = 0;
 card2._updateOptimized();
 assert('S1: idle again after consuming the new version', calls2.length, 0);
+
+// --- Scenario 1b: off-screen slave skips the work WITHOUT consuming the
+// version, so the visibility observer's catch-up call replays the missed
+// state instead of leaving the card frozen on its last paint ---
+card2._isVisible = false;
+card1._lastHassUpdate = 0;
+calls2.length = 0;
+card1.hass = makeHass('sunny', 140, 30); // published while card2 is off-screen
+assert('S1b: off-screen publication deferred (no render)', calls2.length, 0);
+card2._isVisible = true;
+card2._updateOptimized(); // what the IntersectionObserver fires on return
+assert('S1b: catch-up on return renders the missed state', calls2.length, 1);
+assert('S1b: caught-up state carries the missed azimuth', calls2[0]?.state.sunPos?.azimuth, 140);
 
 // --- Scenario 2: demo group, dead master is replaced on stale frames ---
 const cardM = new MeteoCard();

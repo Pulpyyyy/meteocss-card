@@ -77,6 +77,25 @@ assert('demo_mode* layer variants accepted', !r.threw, r.message);
 r = throws({ orbit: { rx: 45 }, shadow: { depthmap: '/local/d.png' } });
 assert('partial object sub-configs accepted', !r.threw, r.message);
 
+// Upgrade tolerance: these worked before validation existed and must keep working.
+r = throws({ singleton_id: 42 });
+assert('numeric singleton_id accepted (unquoted YAML number)', !r.threw, r.message);
+{
+    const c = makeCard();
+    c.setConfig({ singleton_id: 42 });
+    assert('numeric singleton_id coerced to string for grouping', c._singletonId === '42', `got ${JSON.stringify(c._singletonId)}`);
+}
+
+r = throws({ shadow: false, fog: false });
+assert('`section: false` accepted (disables the section)', !r.threw, r.message);
+{
+    const c = makeCard();
+    c.setConfig({ shadow: false });
+    const shadowCfg = c._meteoConfig.get('shadow');
+    assert('shadow: false keeps the defaults (feature off, no crash)',
+        shadowCfg && typeof shadowCfg === 'object' && shadowCfg.depthmap === null, JSON.stringify(shadowCfg));
+}
+
 // --- Structurally invalid configs MUST throw, with the key named ---
 r = throws(null);
 assert('null config throws', r.threw);
@@ -102,6 +121,23 @@ assert('orbit as array throws', r.threw && r.matches, r.message);
 r = throws({ conditions: 'sunny' }, 'conditions');
 assert('conditions as string throws', r.threw && r.matches, r.message);
 
+// Shadow knobs feed gl.uniform1f / pixel math directly: non-numeric values
+// would flow through as silent NaN (black shadows, ignored horizon).
+r = throws({ shadow: { depth_exp: 'two' } }, 'shadow.depth_exp');
+assert('non-numeric shadow.depth_exp throws', r.threw && r.matches, r.message);
+
+r = throws({ shadow: { horizon: 'middle' } }, 'shadow.horizon');
+assert('non-numeric shadow.horizon throws', r.threw && r.matches, r.message);
+
+r = throws({ shadow: { depthmap: 42 } }, 'shadow.depthmap');
+assert('numeric shadow.depthmap throws', r.threw && r.matches, r.message);
+
+r = throws({ shadow: { ground_compensation: 'full' } }, 'ground_compensation');
+assert('non-boolean/number ground_compensation throws', r.threw && r.matches, r.message);
+
+r = throws({ shadow: { bias: NaN } }, 'shadow.bias');
+assert('NaN shadow.bias throws', r.threw && r.matches, r.message);
+
 // --- Unknown layer name: warn, do not throw ---
 const warnings = [];
 const origWarn = console.warn;
@@ -111,6 +147,33 @@ console.warn = origWarn;
 assert('unknown layer name does not throw', !r.threw, r.message);
 assert('unknown layer name emits a console.warn naming it',
     warnings.some(w => w.includes('skyy')), JSON.stringify(warnings));
+
+// --- Prototype pollution: a config key named __proto__ must not reach
+// Object.prototype (JSON.parse makes it an own property, so it is iterable) ---
+{
+    const polluted = JSON.parse('{"__proto__":{"polluted":"yes"}}');
+    const c = makeCard();
+    c.setConfig(polluted);
+    assert('__proto__ config key does not pollute Object.prototype',
+        ({}).polluted === undefined, `Object.prototype.polluted = ${({}).polluted}`);
+    // constructor/prototype keys likewise skipped, no throw
+    let ok = true;
+    try { makeCard().setConfig(JSON.parse('{"constructor":{"x":1},"prototype":{"y":2}}')); } catch { ok = false; }
+    assert('constructor/prototype config keys are skipped without throwing', ok && ({}).x === undefined);
+}
+
+// --- demo_mode must be opt-in, never a default layer (else every minimal
+// config shows the debug panel and shares the singleton 'demo_mode') ---
+{
+    const c = makeCard();
+    c.setConfig({ weather: 'weather.home', sun_entity: 'sun.sun' });
+    const layers = c._meteoConfig.get('layers');
+    assert('demo_mode is not a default layer',
+        Array.isArray(layers) && !layers.includes('demo_mode'), JSON.stringify(layers));
+    assert('minimal config does not enable the demo layer', c._isDemoLayerEnabled === false);
+    assert('minimal config does not collapse into the shared demo_mode singleton',
+        c._singletonId !== 'demo_mode', `got ${c._singletonId}`);
+}
 
 // --- A rejected config must not corrupt the card: valid setConfig after ---
 const card = makeCard();
