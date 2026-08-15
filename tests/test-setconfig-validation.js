@@ -138,6 +138,14 @@ assert('non-boolean/number ground_compensation throws', r.threw && r.matches, r.
 r = throws({ shadow: { bias: NaN } }, 'shadow.bias');
 assert('NaN shadow.bias throws', r.threw && r.matches, r.message);
 
+// clouds.animation.speed feeds every cloud's animation-duration: same
+// silent-NaN class as the shadow knobs.
+r = throws({ clouds: { animation: { speed: 'fast' } } }, 'clouds.animation.speed');
+assert('non-numeric clouds.animation.speed throws', r.threw && r.matches, r.message);
+
+r = throws({ clouds: { animation: { speed: 0 } } }, 'clouds.animation.speed');
+assert('zero clouds.animation.speed throws (would divide by zero)', r.threw && r.matches, r.message);
+
 // --- Unknown layer name: warn, do not throw ---
 const warnings = [];
 const origWarn = console.warn;

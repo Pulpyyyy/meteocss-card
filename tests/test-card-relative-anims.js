@@ -1,5 +1,8 @@
 // Test: animation travel distances must be card-relative (CSS vars with
-// viewport fallbacks) and durations scaled to preserve px/s speeds.
+// viewport fallbacks) and durations derived from a device-independent px/s
+// speed — wind (x clouds.animation.speed) sets the speed, the card size only
+// sets how long one crossing takes (a phone must not show slower clouds
+// than a wall panel under the same wind).
 'use strict';
 const fs = require('fs');
 
@@ -60,7 +63,7 @@ assert('rain-fall travels var(--meteo-h, 100vh)', kf.includes('translateY(calc(v
 assert('snow-fall travels var(--meteo-h, 100vh)', /snow-fall[\s\S]*?var\(--meteo-h, 100vh\) \* 1\.1/.test(kf));
 assert('no bare 110vh / 100vw travel left', !kf.includes('110vh') && !kf.includes('translateX(calc(100vw'));
 
-// --- Durations scaled by the card/viewport ratio ---
+// --- Durations scaled by the travel ratio vars ---
 const css = { content: '', shared: new Set() };
 card._clouds('normal', css, false, 25, 1.0);
 card._rain(5, css);
@@ -76,8 +79,8 @@ card._updateSizeVars();
 const props = card.content.style._props;
 assert('--meteo-w = 400px', props['--meteo-w'] === '400px');
 assert('--meteo-h = 300px', props['--meteo-h'] === '300px');
-assert('--meteo-wr = 400/1600 = 0.250', props['--meteo-wr'] === '0.250');
-assert('--meteo-hr = 300/800 = 0.375', props['--meteo-hr'] === '0.375');
+assert('--meteo-wr = (400+500)/1000 = 0.900', props['--meteo-wr'] === '0.900');
+assert('--meteo-hr = 300/1080 = 0.278', props['--meteo-hr'] === '0.278');
 
 // --- Resize path refreshes the vars ---
 card.connectedCallback();
@@ -86,7 +89,29 @@ card.content.offsetWidth = 800;
 card.content.offsetHeight = 400;
 if (cardRO) cardRO.cb();
 assert('resize updates --meteo-w', props['--meteo-w'] === '800px');
-assert('resize updates --meteo-hr (400/800 = 0.500)', props['--meteo-hr'] === '0.500');
+assert('resize updates --meteo-hr (400/1080 = 0.370)', props['--meteo-hr'] === '0.370');
+
+// --- Device-independent px/s: duration is per 1000px of travel, derived from
+// wind x clouds.animation.speed only (Math.random pinned for determinism) ---
+{
+    const origRandom = Math.random;
+    Math.random = () => 0.5; // randomFactor = (40+60)/100 = 1.0
+    const cssA = { content: '', shared: new Set() };
+    card._clouds('normal', cssA, false, 25, 1.0);
+    // wind 25 -> 2*(25+1) = 52 px/s -> 1000/52 = 19.23s per 1000px, on every device
+    assert('duration encodes 52 px/s at wind 25 (19.23s/1000px)',
+        cssA.content.includes('animation:to-right calc(19.23s * var(--meteo-wr, 1))'));
+
+    const fast = new MeteoCard();
+    fast._renderAll = () => {};
+    fast.setConfig({ weather: 'weather.home', sun_entity: 'sun.sun', layers: ['sky'],
+        clouds: { animation: { speed: 2 } } });
+    const cssB = { content: '', shared: new Set() };
+    fast._clouds('normal', cssB, false, 25, 1.0);
+    assert('clouds.animation.speed doubles the px/s (9.62s/1000px)',
+        cssB.content.includes('animation:to-right calc(9.62s * var(--meteo-wr, 1))'));
+    Math.random = origRandom;
+}
 
 // --- Zero dimensions keep fallbacks (no vars published) ---
 const card2 = new MeteoCard();

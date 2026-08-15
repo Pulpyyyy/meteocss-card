@@ -712,6 +712,8 @@ clouds:
     min_margin: 5        # Minimum margin from top (%)
     max_margin: 85       # Maximum margin from top (%)
     random_variation: 0.3 # Random position variation factor (0-1)
+    speed: 1             # Drift speed multiplier. The base speed (px/s) is derived
+                         # from the wind and identical on every device/screen size
 
 # --- Weather Effects Intensity ---
 rain_intensity:

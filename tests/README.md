@@ -31,7 +31,7 @@ ELECTRON_RUN_AS_NODE=1 "C:/Users/<user>/AppData/Local/Programs/Microsoft VS Code
 | `test-shadow-skip.js` | Shader d'ombre non relancé à lumière immobile ; redraw sur mouvement/phase lunaire |
 | `test-slave-dirtyflag.js` | Cartes esclaves : rendu poussé à la publication (hors démo), rattrapage au retour à l'écran, reprise d'élection master |
 | `test-wind-unit.js` | Conversion de `wind_speed` en km/h selon `wind_speed_unit` |
-| `test-card-relative-anims.js` | Trajectoires nuages/pluie/neige relatives à la carte, vitesses préservées |
+| `test-card-relative-anims.js` | Trajectoires nuages/pluie/neige relatives à la carte, vitesse px/s indépendante de l'écran (vent × `clouds.animation.speed`) |
 | `test-webgl-contextloss.js` | Récupération de la couche ombre après perte de contexte WebGL |
 | `test-editmode-poller.js` | Timer edit-mode partagé entre cartes, détection sortie du mode édition |
 | `test-host-minheight.js` | Hauteur minimale du :host (aperçu de l'éditeur visible) |

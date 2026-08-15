@@ -680,7 +680,9 @@ class MeteoConfig {
             animation: {
                 min_margin: 5,
                 max_margin: 85,
-                random_variation: 0.3
+                random_variation: 0.3,
+                // Multiplies the wind-derived drift speed (px/s, device-independent).
+                speed: 1
             }
         },
         fog: {
@@ -1397,6 +1399,12 @@ class MeteoCard extends HTMLElement {
             if (gc != null && typeof gc !== 'boolean' && (typeof gc !== 'number' || !isFinite(gc))) {
                 throw new Error('meteocss-card: "shadow.ground_compensation" must be true, false or a 0..1 number');
             }
+        }
+        // Same silent-NaN class as the shadow knobs: a bad speed would flow
+        // into every cloud's animation-duration as NaN (frozen clouds).
+        const cloudSpeed = config.clouds?.animation?.speed;
+        if (cloudSpeed != null && (typeof cloudSpeed !== 'number' || !isFinite(cloudSpeed) || cloudSpeed <= 0)) {
+            throw new Error('meteocss-card: "clouds.animation.speed" must be a positive number');
         }
     }
 
@@ -2369,18 +2377,25 @@ class MeteoCard extends HTMLElement {
 
     // Publishes the card dimensions as CSS custom properties consumed by the
     // animation keyframes: --meteo-w/--meteo-h size the travel distances to
-    // the card (instead of the viewport), and the unitless --meteo-wr/hr
-    // ratios scale the durations so the px/s speeds stay the same as the
-    // original viewport-based animations.
+    // the card, and the unitless --meteo-wr/hr ratios scale the durations so
+    // the px/s speed is the SAME on every device — wind (and the optional
+    // clouds.animation.speed factor) alone sets the speed, the card size only
+    // sets how long one crossing takes. Durations used to be scaled to the
+    // viewer's viewport instead, so a 390px-wide phone showed clouds drifting
+    // ~3x slower (in px/s) than a 1920px wall panel under the same wind.
     _updateSizeVars() {
         if (!this.content || !this._cardWidth || !this._cardHeight) return;
         const style = this.content.style;
         style.setProperty('--meteo-w', `${this._cardWidth}px`);
         style.setProperty('--meteo-h', `${this._cardHeight}px`);
-        const vw = window.innerWidth || this._cardWidth;
-        const vh = window.innerHeight || this._cardHeight;
-        style.setProperty('--meteo-wr', Math.max(0.05, this._cardWidth / vw).toFixed(3));
-        style.setProperty('--meteo-hr', Math.max(0.05, this._cardHeight / vh).toFixed(3));
+        // Horizontal: durations are expressed per 1000px of travel (see
+        // _clouds), and the real travel is cardWidth + the 500px overshoot
+        // that lets the widest cloud fully exit before wrapping.
+        style.setProperty('--meteo-wr', Math.max(0.05, (this._cardWidth + 500) / 1000).toFixed(3));
+        // Vertical: rain/snow base durations are calibrated for a 1080px-tall
+        // card (the historical full-height panel), travel is 1.1 * cardHeight
+        // on both sides of the ratio so the 1.1 cancels.
+        style.setProperty('--meteo-hr', Math.max(0.05, this._cardHeight / 1080).toFixed(3));
     }
 
     _updateStaticDOM(state) {
@@ -3502,7 +3517,14 @@ class MeteoCard extends HTMLElement {
             const randomVariation = anim?.random_variation ?? 0.3;
             const bc = 255 - (gr * 25);
             let html = '';
-            const baseDuration = (20 / (windSpeed + 1)) * 60;
+            // Device-independent drift: the target speed in px/s comes from the
+            // wind alone (times the optional config factor), and the duration is
+            // expressed per 1000px of travel — --meteo-wr converts it to this
+            // card's real travel (width + 500px overshoot), so a phone and a
+            // wall panel show the same px/s and the phone simply wraps sooner.
+            // 2*(wind+1) px/s reproduces the historical 1920px-panel timing.
+            const pxPerSec = 2 * (windSpeed + 1) * (anim?.speed ?? 1);
+            const baseDuration = 1000 / pxPerSec;
             const minSpacing = 100 / (adjustedNc + 1);
 
             for (let i = 0; i < adjustedNc; i++) {
