@@ -27,11 +27,11 @@ https://github.com/user-attachments/assets/07463969-425f-423e-a758-a8abea28b8b6
 
 ## 📋 Requirements
 
-- Home Assistant with **weather** integration enabled
+- Home Assistant **2026.6** or later, with a **weather** integration enabled
 - **Sun integration** : Built-in to Home Assistant (provides `sun.sun` entity)
-- **Luna integration** : Install from [okkine/HA-Luna](https://github.com/okkine/HA-Luna)
-  - Provides lunar azimuth, elevation, and phase data
-  - Required for accurate moon positioning and phases
+- **Moon data (optional, recommended)** : a custom integration providing lunar azimuth, elevation and phase, such as [okkine/HA-Luna](https://github.com/okkine/HA-Luna)
+  - Without it, the card still works: the moon is placed opposite the sun and the real lunar phase is not available
+  - ⚠️ HA-Luna is discontinued (final release May 2026) and its author recommends migrating to [okkine/HA-Sol](https://github.com/okkine/HA-Sol). Sol uses different entity IDs (e.g. `sensor.sol_moon_azimuth`), which the card does not detect automatically: set the `moon_*_entity` options explicitly (see [Complete Configuration Reference](#complete-configuration-reference-all-default-values))
 
 ### Installing Required Integrations
 
@@ -46,12 +46,11 @@ sun:
 #### 👉 Luna Integration (Custom Integration) https://github.com/okkine/HA-Luna
 
 1. Install via HACS:
-   - Open HACS → **Integrations**
-   - Search for "Luna"
+   - Open HACS and search for "Luna" (type **Integration**; if it does not appear, add `https://github.com/okkine/HA-Luna` as a custom repository of type Integration)
    - Install "HA-Luna" by okkine
    - Restart Home Assistant
 
-2. Configure using UI
+2. Configure it from the UI: **Settings → Devices & Services → Add Integration → Luna**
 
 3. Verify entities are created:
    - `sensor.luna_lunar_azimuth`
@@ -73,18 +72,21 @@ or
 4. Select type **Dashboard**
 5. Click on `Add`
 6. Now search for **MeteoCSS Card**
-7. Install and restart Home Assistant
+7. Install it, then reload your browser (Ctrl+Shift+R / clear the app cache on mobile). No Home Assistant restart is needed for a card.
 
 ### Manual Installation
 
 1. Create `www/meteo-card/` folder in your config directory
-2. Download `meteocss-card.js` into this folder
-3. Add to `ui-lovelace.yaml`:
+2. Download [`dist/meteocss-card.js`](https://github.com/Pulpyyyy/meteocss-card/blob/main/dist/meteocss-card.js) (button **Download raw file**) into this folder
+3. Register the resource:
+   - **UI-managed dashboards** (default): **Settings → Dashboards → ⋮ → Resources → Add resource**, URL `/local/meteo-card/meteocss-card.js`, type **JavaScript module**
+   - **YAML-mode dashboards**: add to `ui-lovelace.yaml`:
 ```yaml
 resources:
   - url: /local/meteo-card/meteocss-card.js
     type: module
 ```
+4. Reload your browser
 
 ## 📝 Configuration
 
@@ -571,38 +573,40 @@ This is especially useful in picture-elements layouts where you want fine contro
 
 ## 🎮 Supported Weather Conditions
 
-| Icon | Condition | Clouds | BG Ratio | Sky | Rain | Snow | Lightning |
-|------|-----------|--------|----------|-----|------|------|-----------|
-| ☀️ | `sunny` | minimal | 0.9 | normal | — | — | — |
-| ⛅ | `partlycloudy` | low | 0.8 | normal | — | — | — |
-| ☁️ | `cloudy` | heavy | 0.6 | grey | — | — | — |
-| 💧 | `rainy` | normal | 0.7 | rainy | normal | low | — |
-| 🌧️ | `pouring` | heavy | 0.3 | dark | heavy | normal | — |
-| ⛈️ | `lightning-rainy` | heavy | 0.3 | dark | heavy | heavy | Yes |
-| ❄️ | `snowy` | normal | 0.5 | snowy | normal | normal | — |
-| 🌫️ | `fog` | none | 0.3 | grey | — | — | — |
-| 🌙 | `clear-night` | none | 0.5 | clear | — | — | — |
-| — | `default` | low | 0.5 | normal | — | — | — |
+| Icon | Condition | Clouds | BG Ratio | Day sky | Night sky | Rain | Snow | Extra |
+|------|-----------|--------|----------|---------|-----------|------|------|-------|
+| ☀️ | `sunny` | minimal | 0.9 | normal | clear | — | — | — |
+| ⛅ | `partlycloudy` | low | 0.8 | inter | normal | — | — | — |
+| ☁️ | `cloudy` | heavy | 0.6 | grey | normal | — | — | — |
+| 💧 | `rainy` | normal | 0.7 | rainy | normal | low | — | — |
+| 🌧️ | `pouring` | heavy | 0.3 | dark | dark | normal | — | — |
+| ⛈️ | `lightning-rainy` | heavy | 0.3 | dark | dark | heavy | — | Lightning |
+| ❄️ | `snowy` | normal | 0.5 | snowy | normal | — | normal | — |
+| 🌫️ | `fog` | none | 0.3 | grey | normal | — | — | Fog |
+| 🌙 | `clear-night` | none | 0.5 | normal | clear | — | — | Stars |
+| — | `default` | low | 0.5 | normal | normal | — | — | — |
+
+The **Rain** and **Snow** columns refer to the `rain_intensity` / `snow_intensity` levels (`drops` / `flakes` keys of each condition). `default` is only used as a fallback when a condition has no entry in `conditions`; weather states the card does not recognise are mapped to `sunny` (see below).
 
 **BG Ratio Explanation**: The proportion of clouds rendered in the background layer (0.0 = all foreground, 1.0 = all background). This creates visual depth when using multiple cards or picture-elements.
 
 ### Home Assistant State Mapping
 
-Raw weather entity states are mapped to the card conditions above (substring matching, so custom integrations using the same keywords work too):
+Raw weather entity states are mapped to the card conditions above by case-insensitive **substring matching**, so custom integrations using the same English keywords work too. The rules are tested **in this order**, and the first match wins:
 
-| HA weather state | Card condition |
-|------------------|----------------|
-| `sunny`, `windy`, `exceptional` | `sunny` |
-| `clear-night` | `clear-night` |
-| `clear` (custom integrations) | `sunny` by day, `clear-night` at night |
-| `partlycloudy`, `windy-variant` | `partlycloudy` |
-| `cloudy` | `cloudy` |
-| `rainy` | `rainy` |
-| `pouring`, `hail` | `pouring` |
-| `lightning`, `lightning-rainy` | `lightning-rainy` |
-| `snowy`, `snowy-rainy` | `snowy` |
-| `fog` | `fog` |
-| anything else | `sunny` |
+| # | State contains… | Card condition | Standard HA states covered |
+|---|-----------------|----------------|----------------------------|
+| 1 | `lightning` or `storm` | `lightning-rainy` | `lightning`, `lightning-rainy` |
+| 2 | `pouring`, `heavy` or `hail` | `pouring` | `pouring`, `hail` |
+| 3 | `snow` | `snowy` | `snowy`, `snowy-rainy` |
+| 4 | `rain` | `rainy` | `rainy` |
+| 5 | `partly`, `broken` or `windy-variant` | `partlycloudy` | `partlycloudy`, `windy-variant` |
+| 6 | `cloud` | `cloudy` | `cloudy` |
+| 7 | `fog` or `mist` | `fog` | `fog` |
+| 8 | `clear` | `clear-night` if the state contains `night` or the sun is down, otherwise `sunny` | `clear-night` |
+| — | anything else | `sunny` | `sunny`, `windy`, `exceptional` |
+
+> **Note:** because of this order, a custom state such as `heavy-snow` renders as `pouring` and `snowstorm` as `lightning-rainy`. States that are not in English (e.g. French labels such as `Pluie` or `Brouillard` exposed by some integrations) match no keyword and fall back to `sunny`; use an integration that exposes the standard HA conditions.
 
 ## Complete Configuration Reference (All Default Values)
 
@@ -761,15 +765,7 @@ layers:
 
 ## 🎨 Customization Tips
 
-### Keep It Simple!
-
-You only need to replace the values you want to modify. For a given category (for example, the Moon), there is no need to redefine everything—only include the fields you want to change.
-
-Example:
-```yaml
-moon:
-  disc_radius: 8  # Moon size only - other values use defaults
-```
+Remember: only include the fields you want to change, everything else keeps its default value (see [Keep It Simple!](#keep-it-simple)).
 
 ### Fine-tune Sun Glow
 
@@ -814,19 +810,14 @@ house_angle: 270  # West facing
 
 ### Using Luna Integration (HA-Luna)
 
-1. Install Luna integration via HACS
-2. Add to configuration.yaml:
-   ```yaml
-   # configuration.yaml
-   luna:
-   ```
-3. After restart, verify these entities exist:
+1. Install Luna integration via HACS and add it from **Settings → Devices & Services** (see [Installing Required Integrations](#installing-required-integrations))
+2. Verify these entities exist:
    - `sensor.luna_lunar_azimuth`
    - `sensor.luna_lunar_elevation`
    - `sensor.luna_lunar_phase`
    - `sensor.luna_lunar_phase_degrees`
 
-4. Reference in card:
+3. Reference in card (optional: these Luna entities are detected automatically):
    ```yaml
    type: custom:meteo-card
    weather: weather.home
@@ -837,30 +828,36 @@ house_angle: 270  # West facing
    moon_degrees_entity: sensor.luna_lunar_phase_degrees
    ```
 
-### Using OpenWeatherMap
+### Using HA-Sol (Luna's successor)
 
-```yaml
-# configuration.yaml
-weather:
-  - platform: openweathermap
-    api_key: !secret openweather_api_key
-    name: home_weather
-```
+Sol creates moon entities with different IDs, which the card does not detect automatically. Look up the exact IDs in **Developer Tools → States** (filter on `sol_moon`) and set them explicitly, for example:
 
-Then reference in card:
 ```yaml
 type: custom:meteo-card
-weather: weather.home_weather
+weather: weather.home
+sun_entity: sun.sun
+moon_azimuth_entity: sensor.sol_moon_azimuth
+moon_elevation_entity: sensor.sol_moon_elevation
+moon_phase_entity: sensor.sol_moon_phase            # check the exact ID
+moon_degrees_entity: sensor.sol_moon_phase_angle    # check the exact ID
+```
+
+### Using OpenWeatherMap
+
+OpenWeatherMap is configured from the UI (YAML configuration is no longer supported): **Settings → Devices & Services → Add Integration → OpenWeatherMap**, then enter your API key. Then reference the created weather entity in the card:
+
+```yaml
+type: custom:meteo-card
+weather: weather.openweathermap
 sun_entity: sun.sun
 ```
 
 ## 🐛 Troubleshooting
 
 ### Entities Not Found
-- Verify sun integration is enabled (add `sun:` to configuration.yaml)
-- Install Luna integration from [okkine/HA-Luna](https://github.com/okkine/HA-Luna)
+- Verify the sun integration is enabled (it is part of `default_config:`; otherwise add `sun:` to configuration.yaml)
 - Check entity names in Developer Tools → States
-- After Luna installation, verify these entities appear:
+- Moon entities are optional; if you use Luna, verify these entities appear:
   - `sensor.luna_lunar_azimuth`
   - `sensor.luna_lunar_elevation`
   - `sensor.luna_lunar_phase`
@@ -868,7 +865,7 @@ sun_entity: sun.sun
 
 ### Sun/Moon Not Displaying
 - Confirm elevation is valid (sun shows only when elevation ≥ 0°)
-- Check moon entities are correct
+- Check moon entities are correct (with HA-Sol, set the `moon_*_entity` options explicitly)
 - Verify azimuth values are 0-360°
 
 ### Animations Are Stuttering
